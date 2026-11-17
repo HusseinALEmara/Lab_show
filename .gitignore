@@ -1,0 +1,31 @@
+/.container/
+/node_modules/
+/dist/
+/certs/
+
+# Runtime files and logs
+/run.bat
+*.log
+npm-debug.log*
+
+# Local environment and configuration
+.env
+.env.*
+*.local
+.local.env
+local-settings.json
+config.local.*
+
+# Editor and local environment settings
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Temporary and test output
+.cache/
+coverage/
+*.tmp
+*.temp
+*.pid
+*.seed

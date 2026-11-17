@@ -1,0 +1,9 @@
+lab-show-desktop/
+├── install.bat
+├── bootstrap.ps1
+├── package.json
+├── server.js
+├── preload.js
+├── main.js
+└── renderer/
+    └── index.html

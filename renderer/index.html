@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Lab show</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: system-ui, "Segoe UI", Tahoma, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: #0f172a;
+            color: #f8fafc;
+            padding: 18px;
+            display: flex;
+            gap: 18px;
+            overflow: hidden;
+        }
+
+        .control-column {
+            width: 100%;
+            max-width: 434px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            flex-shrink: 0;
+        }
+
+        body.viewer-active .control-column {
+            width: 340px;
+            margin: 0;
+        }
+
+        .card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 14px;
+            padding: 18px;
+        }
+
+        .app-title {
+            font-size: 1.35rem;
+            font-weight: 800;
+            color: #38bdf8;
+            margin: 0 0 12px;
+            text-align: center;
+        }
+
+        input.code-input {
+            width: 100%;
+            padding: 12px;
+            font-size: 1.6rem;
+            letter-spacing: 6px;
+            text-align: center;
+            direction: ltr;
+            border-radius: 10px;
+            border: 2px solid #334155;
+            background: #0f172a;
+            color: #f8fafc;
+            outline: none;
+            margin-bottom: 12px;
+        }
+
+        input.code-input:focus {
+            border-color: #38bdf8;
+        }
+
+        .btn-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        button {
+            border: none;
+            border-radius: 9px;
+            padding: 11px;
+            font-size: 0.98rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: opacity 0.15s;
+        }
+
+        button:hover {
+            opacity: 0.92;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: wait;
+        }
+
+        .btn-ok {
+            background: #059669;
+            color: #ffffff;
+        }
+
+        .btn-cancel {
+            background: #334155;
+            color: #f8fafc;
+        }
+
+        .btn-generate {
+            background: #0284c7;
+            color: #ffffff;
+            width: 100%;
+        }
+
+        .btn-danger {
+            background: #dc2626;
+            color: #ffffff;
+            width: 100%;
+            margin-top: 8px;
+        }
+
+        .status-text {
+            margin-top: 10px;
+            font-size: 0.85rem;
+            text-align: center;
+            min-height: 18px;
+            color: #94a3b8;
+        }
+
+        .status-text.ok {
+            color: #34d399;
+        }
+
+        .status-text.err {
+            color: #f87171;
+        }
+
+        .host-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        select {
+            flex: 1;
+            padding: 9px;
+            border-radius: 8px;
+            border: 1px solid #475569;
+            background: #0f172a;
+            color: #f8fafc;
+            font-size: 0.88rem;
+        }
+
+        .generated-box {
+            display: none;
+            margin-top: 12px;
+            padding: 12px;
+            border-radius: 10px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            text-align: center;
+        }
+
+        .generated-box.active {
+            display: block;
+        }
+
+        .generated-code {
+            font-size: 1.9rem;
+            font-weight: 800;
+            letter-spacing: 6px;
+            color: #34d399;
+            direction: ltr;
+            margin: 6px 0;
+        }
+
+        .host-meta {
+            font-size: 0.82rem;
+            color: #cbd5e1;
+            display: flex;
+            justify-content: space-between;
+            margin-top: 4px;
+        }
+
+        .viewer-column {
+            display: none;
+            flex: 1;
+            height: calc(100vh - 36px);
+        }
+
+        body.viewer-active .viewer-column {
+            display: flex;
+        }
+
+        .video-box {
+            flex: 1;
+            background: #020617;
+            border: 1px solid #334155;
+            border-radius: 14px;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        video,
+        canvas.freeze-canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        canvas.freeze-canvas {
+            position: absolute;
+            inset: 0;
+            display: none;
+            background: #020617;
+            z-index: 5;
+        }
+
+        canvas.freeze-canvas.active {
+            display: block;
+        }
+
+        .corner-controls {
+            position: absolute;
+            bottom: 14px;
+            left: 14px;
+            display: flex;
+            gap: 8px;
+            z-index: 20;
+            transition: opacity 0.25s ease;
+        }
+
+        .corner-btn {
+            width: 44px;
+            height: 44px;
+            padding: 0;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            background: rgba(15, 23, 42, 0.82);
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .corner-btn:hover {
+            background: rgba(2, 132, 199, 0.92);
+        }
+
+        .video-box.is-fullscreen {
+            position: fixed;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 99999;
+            background: #000000;
+            border: none;
+            border-radius: 0;
+            cursor: none;
+        }
+
+        .video-box.is-fullscreen.show-controls {
+            cursor: default;
+        }
+
+        .video-box.is-fullscreen .float-btn {
+            display: none;
+        }
+
+        .video-box.is-fullscreen .corner-controls {
+            bottom: 22px;
+            left: 22px;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .video-box.is-fullscreen.show-controls .corner-controls {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .video-box.is-fullscreen .corner-btn {
+            width: 50px;
+            height: 50px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="control-column">
+        <div class="card">
+            <h1 class="app-title">Lab show</h1>
+
+            <input type="text" id="codeInput" class="code-input" maxlength="6" placeholder="أدخل الرقم"
+                inputmode="numeric" autofocus />
+
+            <div class="btn-row">
+                <button class="btn-ok" id="okBtn">موافق</button>
+                <button class="btn-cancel" id="cancelBtn">إلغاء</button>
+            </div>
+
+            <div class="status-text" id="outgoingStatus">أدخل الرمز لبدء بث شاشتك</div>
+        </div>
+
+        <div class="card">
+            <div class="host-row">
+                <select id="durationSelect">
+                    <option value="0">بدون مدة (إيقاف يدوي)</option>
+                    <option value="5">5 دقائق</option>
+                    <option value="10" selected>10 دقائق</option>
+                    <option value="15">15 دقيقة</option>
+                    <option value="30">30 دقيقة</option>
+                </select>
+            </div>
+
+            <button class="btn-generate" id="generateBtn">توليد رمز</button>
+
+            <div class="generated-box" id="generatedBox">
+                <div style="font-size:0.8rem; color:#94a3b8;">أعطِ هذا الرمز لمن تريد مشاهدة شاشته:</div>
+                <div class="generated-code" id="generatedCode">------</div>
+                <div class="host-meta">
+                    <span id="hostTimer">مفتوح</span>
+                    <span id="hostStateText">بانتظار إدخال الرمز...</span>
+                </div>
+                <button class="btn-danger" id="deleteCodeBtn">حذف الرمز وإيقاف الاستقبال</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="viewer-column">
+        <div class="video-box" id="videoBox">
+            <video id="remoteVideo" autoplay playsinline muted></video>
+            <canvas id="freezeCanvas" class="freeze-canvas"></canvas>
+
+            <div class="corner-controls">
+                <button class="corner-btn float-btn" id="floatBtn" title="تصغير إلى نافذة عائمة">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="4" width="18" height="16" rx="2" />
+                        <rect x="12" y="12" width="7" height="6" rx="1" fill="currentColor" />
+                    </svg>
+                </button>
+
+                <button class="corner-btn" id="fsToggleBtn" title="تكبير / تصغير الشاشة">
+                    <svg id="fsIconExpand" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2.2">
+                        <path
+                            d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                    </svg>
+                    <svg id="fsIconCompress" width="22" height="22" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2.2" style="display:none;">
+                        <path
+                            d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="../node_modules/socket.io-client/dist/socket.io.min.js"></script>
+    <script>
+        const codeInput = document.getElementById('codeInput');
+        const okBtn = document.getElementById('okBtn');
+        const cancelBtn = document.getElementById('cancelBtn');
+        const outgoingStatus = document.getElementById('outgoingStatus');
+
+        const durationSelect = document.getElementById('durationSelect');
+        const generateBtn = document.getElementById('generateBtn');
+        const generatedBox = document.getElementById('generatedBox');
+        const generatedCode = document.getElementById('generatedCode');
+        const hostTimer = document.getElementById('hostTimer');
+        const hostStateText = document.getElementById('hostStateText');
+        const deleteCodeBtn = document.getElementById('deleteCodeBtn');
+
+        const videoBox = document.getElementById('videoBox');
+        const remoteVideo = document.getElementById('remoteVideo');
+        const freezeCanvas = document.getElementById('freezeCanvas');
+        const floatBtn = document.getElementById('floatBtn');
+        const fsToggleBtn = document.getElementById('fsToggleBtn');
+        const fsIconExpand = document.getElementById('fsIconExpand');
+        const fsIconCompress = document.getElementById('fsIconCompress');
+
+        let outSocket = null;
+        let outStream = null;
+        let outPC = null;
+        let outPendingCandidates = [];
+        let isSharingOutgoing = false;
+        let isPausedOutgoing = false;
+
+        function setOutgoingStatus(msg, type = '') {
+            outgoingStatus.textContent = msg;
+            outgoingStatus.className = `text ${type}`;
+        }
+
+        function syncTrayOutgoingState() {
+            window.electronAPI.setOutgoingState({
+                sharing: isSharingOutgoing,
+                paused: isPausedOutgoing
+            });
+        }
+
+        function stopOutgoingShare(notifyRemote = true) {
+            if (notifyRemote && outSocket && outSocket.connected && isSharingOutgoing) {
+                outSocket.emit('sender-stop-sharing');
+            }
+            if (outStream) {
+                outStream.getTracks().forEach((t) => t.stop());
+                outStream = null;
+            }
+            if (outPC) {
+                outPC.close();
+                outPC = null;
+            }
+            if (outSocket) {
+                outSocket.disconnect();
+                outSocket = null;
+            }
+            outPendingCandidates = [];
+            isSharingOutgoing = false;
+            isPausedOutgoing = false;
+            syncTrayOutgoingState();
+        }
+
+        window.electronAPI.onTrayStopBroadcast(() => {
+            stopOutgoingShare(true);
+            codeInput.value = '';
+            setOutgoingStatus('تم إيقاف البث.', '');
+        });
+
+        window.electronAPI.onTrayTogglePause(() => {
+            if (!isSharingOutgoing || !outStream || !outSocket) return;
+            const track = outStream.getVideoTracks()[0];
+            if (!track) return;
+
+            isPausedOutgoing = !isPausedOutgoing;
+            track.enabled = !isPausedOutgoing;
+
+            if (isPausedOutgoing) {
+                outSocket.emit('sender-pause-sharing');
+                setOutgoingStatus('البث متوقف مؤقتاً', '');
+            } else {
+                outSocket.emit('sender-resume-sharing');
+                setOutgoingStatus('جاري بث شاشتك الآن', 'ok');
+            }
+            syncTrayOutgoingState();
+        });
+
+        cancelBtn.addEventListener('click', () => {
+            codeInput.value = '';
+            codeInput.focus();
+            if (!isSharingOutgoing) {
+                setOutgoingStatus('أدخل الرمز لبدء بث شاشتك', '');
+            }
+        });
+
+        okBtn.addEventListener('click', async () => {
+            const code = codeInput.value.trim();
+            if (!code) {
+                return setOutgoingStatus('أدخل الرقم أولاً', 'err');
+            }
+
+            setOutgoingStatus('جاري البحث عن صاحب الرمز...', '');
+            const target = await window.electronAPI.findHostByCode(code);
+
+            if (!target) {
+                return setOutgoingStatus('لم يُعثر على جهاز يملك هذا الرمز في الشبكة.', 'err');
+            }
+
+            stopOutgoingShare(true);
+            outSocket = io(`http://${target.ip}:${target.port}`);
+            outSocket.on('connect', () => {
+                outSocket.emit('sender-join-code', { code }, async (res) => {
+                    if (!res || !res.ok) {
+                        stopOutgoingShare(false);
+                        return setOutgoingStatus((res && res.message) || 'تعذر الاتصال بالرمز.', 'err');
+                    }
+
+                    try {
+                        outStream = await navigator.mediaDevices.getDisplayMedia({
+                            video: {
+                                frameRate: { ideal: 30, max: 30 },
+                                width: { max: 1920 },
+                                height: { max: 1080 }
+                            },
+                            audio: false
+                        });
+
+                        outPC = new RTCPeerConnection({ iceServers: [] });
+                        outStream.getTracks().forEach((track) => outPC.addTrack(track, outStream));
+
+                        outPC.onicecandidate = (event) => {
+                            if (event.candidate && outSocket) {
+                                outSocket.emit('webrtc-ice-candidate', {
+                                    candidate: event.candidate,
+                                    target: 'host'
+                                });
+                            }
+                        };
+
+                        const offer = await outPC.createOffer();
+                        await outPC.setLocalDescription(offer);
+
+                        outSocket.emit('sender-start-sharing');
+                        outSocket.emit('webrtc-offer', { offer });
+
+                        isSharingOutgoing = true;
+                        isPausedOutgoing = false;
+                        syncTrayOutgoingState();
+                        setOutgoingStatus('جاري بث شاشتك الآن', 'ok');
+
+                        if (!isReceivingIncoming && !floatingWin) {
+                            setTimeout(() => {
+                                window.electronAPI.hideToBackground();
+                            }, 350);
+                        }
+                    } catch (err) {
+                        console.error(err);
+                        stopOutgoingShare(true);
+                        setOutgoingStatus('تعذر التقاط الشاشة.', 'err');
+                    }
+                });
+            });
+
+            outSocket.on('webrtc-answer', async ({ answer }) => {
+                try {
+                    if (!outPC) return;
+                    await outPC.setRemoteDescription(new RTCSessionDescription(answer));
+                    for (const cand of outPendingCandidates) {
+                        await outPC.addIceCandidate(new RTCIceCandidate(cand));
+                    }
+                    outPendingCandidates = [];
+                } catch (err) {
+                    console.error(err);
+                }
+            });
+
+            outSocket.on('webrtc-ice-candidate', async ({ candidate }) => {
+                try {
+                    if (outPC && outPC.remoteDescription) {
+                        await outPC.addIceCandidate(new RTCIceCandidate(candidate));
+                    } else {
+                        outPendingCandidates.push(candidate);
+                    }
+                } catch (err) {
+                    console.error(err);
+                }
+            });
+
+            outSocket.on('session-terminated', ({ message }) => {
+                stopOutgoingShare(false);
+                codeInput.value = '';
+                setOutgoingStatus(message || 'تم إيقاف الجلسة.', 'err');
+            });
+
+            outSocket.on('disconnect', () => {
+                if (isSharingOutgoing) {
+                    stopOutgoingShare(false);
+                    setOutgoingStatus('انقطع الاتصال بالمستقبِل.', 'err');
+                }
+            });
+        });
+
+        codeInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') okBtn.click();
+            if (e.key === 'Escape') cancelBtn.click();
+        });
+
+        let inSocket = null;
+        let inPC = null;
+        let inPendingCandidates = [];
+        let hostCountdownTimer = null;
+        let isReceivingIncoming = false;
+        let isIncomingPaused = false;
+        let isFullscreen = false;
+        let hideControlsTimer = null;
+        let floatingWin = null;
+
+        function captureFrozenFrameToCanvas(videoEl, canvasEl) {
+            if (!videoEl || !canvasEl || !videoEl.videoWidth || !videoEl.videoHeight) return;
+            canvasEl.width = videoEl.videoWidth;
+            canvasEl.height = videoEl.videoHeight;
+            const ctx = canvasEl.getContext('2d');
+            ctx.drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height);
+        }
+
+        function applyIncomingFreeze(paused) {
+            isIncomingPaused = paused;
+
+            if (paused) {
+                const sourceVideo =
+                    floatingWin && !floatingWin.closed
+                        ? floatingWin.document.getElementById('pipVideo')
+                        : remoteVideo;
+                captureFrozenFrameToCanvas(sourceVideo || remoteVideo, freezeCanvas);
+                freezeCanvas.classList.add('active');
+
+                if (floatingWin && !floatingWin.closed) {
+                    const pipVideo = floatingWin.document.getElementById('pipVideo');
+                    const pipCanvas = floatingWin.document.getElementById('pipFreezeCanvas');
+                    if (pipVideo && pipCanvas) {
+                        captureFrozenFrameToCanvas(pipVideo, pipCanvas);
+                        pipCanvas.style.display = 'block';
+                    }
+                }
+            } else {
+                freezeCanvas.classList.remove('active');
+                if (floatingWin && !floatingWin.closed) {
+                    const pipCanvas = floatingWin.document.getElementById('pipFreezeCanvas');
+                    if (pipCanvas) pipCanvas.style.display = 'none';
+                }
+            }
+        }
+
+        function closeFloatingWindow(restoreMain = true) {
+            if (floatingWin && !floatingWin.closed) {
+                const winRef = floatingWin;
+                floatingWin = null;
+                winRef.onbeforeunload = null;
+                winRef.close();
+            }
+            if (restoreMain && isReceivingIncoming) {
+                window.electronAPI.showWindow();
+            }
+        }
+
+        function openFloatingWindow() {
+            if (!isReceivingIncoming || !remoteVideo.srcObject) return;
+            if (isFullscreen) setFullscreenState(false);
+
+            if (floatingWin && !floatingWin.closed) {
+                floatingWin.focus();
+                return;
+            }
+
+            floatingWin = window.open('', 'FloatingPlayer');
+            if (!floatingWin) return;
+
+            const doc = floatingWin.document;
+            doc.open();
+            doc.write(`
+        < !DOCTYPE html >
+            <html lang="ar" dir="rtl">
+                <head>
+                    <meta charset="UTF-8" />
+                    <title>Lab show</title>
+                    <style>
+                        * {box - sizing: border-box; margin: 0; padding: 0; }
+                        body {
+                            background: #000;
+                        width: 100vw;
+                        height: 100vh;
+                        overflow: hidden;
+                        position: relative;
+                        -webkit-app-region: drag;
+                        user-select: none;
+            }
+                        video, canvas {
+                            width: 100%;
+                        height: 100%;
+                        object-fit: contain;
+                        display: block;
+            }
+                        canvas {
+                            position: absolute;
+                        inset: 0;
+                        display: none;
+                        background: #000;
+                        z-index: 4;
+            }
+                        .pip-controls {
+                            position: absolute;
+                        top: 8px;
+                        left: 8px;
+                        display: flex;
+                        gap: 6px;
+                        opacity: 0;
+                        transition: opacity 0.2s;
+                        z-index: 10;
+                        -webkit-app-region: no-drag;
+            }
+                        body:hover .pip-controls {opacity: 1; }
+                        button {
+                            border: 1px solid rgba(255,255,255,0.28);
+                        background: rgba(15, 23, 42, 0.85);
+                        color: #fff;
+                        border-radius: 7px;
+                        padding: 5px 9px;
+                        font-size: 12px;
+                        font-family: system-ui, "Segoe UI", Tahoma, sans-serif;
+                        cursor: pointer;
+            }
+                        button:hover {background: rgba(2, 132, 199, 0.95); }
+                        button.close-btn:hover {background: rgba(220, 38, 38, 0.95); }
+                    </style>
+                </head>
+                <body>
+                    <video id="pipVideo" autoplay playsinline muted></video>
+                    <canvas id="pipFreezeCanvas"></canvas>
+                    <div class="pip-controls">
+                        <button id="restoreBtn" title="العودة للنافذة">توسيع</button>
+                        <button id="closePipBtn" class="close-btn" title="إغلاق النافذة العائمة">✕</button>
+                    </div>
+                </body>
+            </html>
+            `);
+            doc.close();
+
+            const pipVideo = doc.getElementById('pipVideo');
+            const pipCanvas = doc.getElementById('pipFreezeCanvas');
+            pipVideo.srcObject = remoteVideo.srcObject;
+
+            if (isIncomingPaused) {
+                captureFrozenFrameToCanvas(remoteVideo, pipCanvas);
+                pipCanvas.style.display = 'block';
+            }
+            doc.getElementById('restoreBtn').addEventListener('click', () => {
+                closeFloatingWindow(true);
+            });
+
+            doc.getElementById('restoreBtn').addEventListener('click', () => {
+                closeFloatingWindow(true);
+            });
+            doc.getElementById('closePipBtn').addEventListener('click', () => {
+                closeFloatingWindow(true);
+            });
+            floatingWin.onbeforeunload = () => {
+                floatingWin = null;
+                if (isReceivingIncoming) {
+                    window.electronAPI.showWindow();
+                }
+            };
+            window.electronAPI.hideToBackground();
+        }
+        floatBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openFloatingWindow();
+        });
+        function setFullscreenState(enable) {
+            isFullscreen = enable;
+            window.electronAPI.setFullScreen(enable);
+            if (enable) {
+                videoBox.classList.add('is-fullscreen', 'show-controls');
+                fsIconExpand.style.display = 'none';
+                fsIconCompress.style.display = 'block';
+                scheduleHideControls();
+            } else {
+                videoBox.classList.remove('is-fullscreen', 'show-controls');
+                fsIconExpand.style.display = 'block';
+                fsIconCompress.style.display = 'none';
+                if (hideControlsTimer) clearTimeout(hideControlsTimer);
+            }
+        }
+        function scheduleHideControls() {
+            if (hideControlsTimer) clearTimeout(hideControlsTimer);
+            if (!isFullscreen) return;
+            hideControlsTimer = setTimeout(() => {
+                videoBox.classList.remove('show-controls');
+            }, 2200);
+        }
+        videoBox.addEventListener('mousemove', () => {
+            if (!isFullscreen) return;
+            videoBox.classList.add('show-controls');
+            scheduleHideControls();
+        });
+        fsToggleButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            setFullscreenState(!isFullscreen);
+        });
+        remoteVideo.addEventListener('dblclick', () => {
+            setFullscreenState(!isFullscreen);
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && isFullscreen) {
+                setFullscreenState(false);
+            }
+        });
+        function clearIncomingViewer() {
+            if (isFullscreen) {
+                setFullscreenState(false);
+            }
+            isIncomingPaused = false;
+            isReceivingIncoming = false;
+            freezeCanvas.classList.remove('active');
+            closeFloatingWindow(false);
+            if (inPC) {
+                inPC.close();
+                inPC = null;
+            }
+            inPendingCandidates = [];
+            remoteVideo.srcObject = null;
+            document.body.classList.remove('viewer-active');
+            window.electronAPI.setWindowSizeMode('compact');
+        }
+        function updateHostTimer(expiresAt) {
+            if (hostCountdownTimer) clearInterval(hostCountdownTimer);
+            if (!expiresAt) {
+                hostTimer.textContent = 'بدون مدة';
+                return;
+            }
+            const tick = () => {
+                const diff = expiresAt - Date.now();
+                if (diff <= 0) {
+                    hostTimer.textContent = '00:00';
+                    clearInterval(hostCountdownTimer);
+                    return;
+                }
+                const total = Math.ceil(diff / 1000);
+                const mins = Math.floor(total / 60).toString().padStart(2, '0');
+                const secs = (total % 60).toString().padStart(2, '0');
+                hostTimer.textContent = `${mins}:${secs}`;
+            };
+            tick();
+            hostCountdownTimer = setInterval(tick, 1000);
+        }
+        function renderHostSession(session) {
+            if (!session) {
+                generatedBox.classList.remove('active');
+                if (hostCountdownTimer) clearInterval(hostCountdownTimer);
+                clearIncomingViewer();
+                return;
+            }
+            generatedBox.classList.add('active');
+            generatedCode.textContent = session.code;
+            updateHostTimer(session.expiresAt);
+            if (session.isSharing && session.isPaused) {
+                hostStateText.textContent = 'متوقف مؤقتاً (صورة مجمدة)';
+            } else if (session.isSharing) {
+                hostStateText.textContent = 'يبث الآن';
+            } else if (session.senderConnected) {
+                hostStateText.textContent = '...متصل';
+            } else {
+                hostStateText.textContent = 'بانتظار الطرف الآخر';
+                clearIncomingViewer();
+            }
+        }
+        window.electronAPI.getHostInfo().then((info) => {
+            inSocket = io(`http://127.0.0.1](http://127.0.0.1):${info.port}`);
+            inSocket.on('connect', () => {
+                inSocket.emit('register-host-ui');
+            });
+            inSocket.on('host-session-state', renderHostSession);
+            inSocket.on('sender-paused-sharing', () => applyIncomingFreeze(true));
+            inSocket.on('sender-resumed-sharing', () => applyIncomingFreeze(false));
+            inSocket.on('sender-stopped-sharing', clearIncomingViewer);
+            inSocket.on('sender-left', clearIncomingViewer);
+            inSocket.on('webrtc-offer', async ({ offer }) => {
+                try {
+                    if (inPC) inPC.close();
+                    inPendingCandidates = [];
+                    inPC = new RTCPeerConnection({ iceServers: [] });
+                    inPC.ontrack = (event) => {
+                        if (event.streams && event.streams[0]) {
+                            remoteVideo.srcObject = event.streams[0];
+                            isReceivingIncoming = true;
+                            isIncomingPaused = false;
+                            freezeCanvas.classList.remove('active');
+                            document.body.classList.add('viewer-active');
+                            window.electronAPI.setWindowSizeMode('viewer');
+                            window.electronAPI.showWindow();
+                        }
+                    };
+                    inPC.onicecandidate = (event) => {
+                        if (event.candidate) {
+                            inSocket.emit('webrtc-ice-candidate', {
+                                candidate: event.candidate,
+                                target: 'sender'
+                            });
+                        }
+                    };
+                    await inPC.setRemoteDescription(new RTCSessionDescription(offer));
+                    for (const cand of inPendingCandidates) {
+                        await inPC.addIceCandidate(new RTCIceCandidate(cand));
+                    }
+                    inPendingCandidates = [];
+                    const answer = await inPC.createAnswer();
+                    await inPC.setLocalDescription(answer);
+                    inSocket.emit('webrtc-answer', { answer });
+                } catch (err) {
+                    console.error('Incoming WebRTC error:', err);
+                }
+            });
+            inSocket.on('webrtc-ice-candidate', async ({ candidate }) => {
+                try {
+                    if (inPC && inPC.remoteDescription) {
+                        await inPC.addIceCandidate(new RTCIceCandidate(candidate));
+                    } else {
+                        inPendingCandidates.push(candidate);
+                    }
+                } catch (err) {
+                    console.error(err);
+                }
+            });
+        });
+        generateBtn.addEventListener('click', () => {
+            if (!inSocket) return;
+            generateBtn.disabled = true;
+            generateBtn.textContent = 'جاري التحقق وتوليد الرمز...';
+            const durationMinutes = parseInt(durationSelect.value, 10) || 0;
+            inSocket.emit('host-create-code', { durationMinutes }, () => {
+                generateBtn.disabled = false;
+                generateBtn.textContent = 'توليد رمز';
+            });
+        });
+        deleteCodeBtn.addEventListener('click', () => {
+            if (!inSocket) return;
+            inSocket.emit('host-delete-code');
+            clearIncomingViewer();
+        });
+        doc.close();
+        const pipVideo = doc.getElementById('pipVideo');
+        const pipCanvas = doc.getElementById('pipFreezeCanvas');
+        pipVideo.srcObject = remoteVideo.srcObject;
+        if (isIncomingPaused) {
+            captureFrozenFrameToCanvas(remoteVideo, pipCanvas);
+            pipCanvas.style.display = 'block';
+        }
+    </script>
+</body>
+
+</html>
