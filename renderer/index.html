@@ -572,7 +572,7 @@
                     </select>
                 </div>
 
-                <button class="btn-generate" id="generateBtn" disabled>جارٍ الاتصال...</button>
+                <button class="btn-generate" id="generateBtn" disabled>توليد رمز</button>
                 <div class="status-text" id="hostConnectionStatus" role="status">جارٍ الاتصال بخدمة المختبر...</div>
 
                 <div class="generated-box" id="generatedBox">
@@ -1481,7 +1481,7 @@
             updateTeacherControlUi();
         }
         generateBtn.addEventListener('click', () => {
-            if (!inSocket || !inSocket.connected) {
+            if (!inSocket) {
                 hostConnectionStatus.textContent = 'تعذر الاتصال بخدمة الاستقبال على هذا الحاسوب.';
                 hostConnectionStatus.className = 'status-text err';
                 return;
@@ -1504,7 +1504,7 @@
                         hostConnectionStatus.textContent = 'تم إنشاء الرمز؛ أدخله على حاسوب الطالب.';
                         hostConnectionStatus.className = 'status-text ok';
                     }
-                    generateBtn.disabled = !inSocket || !inSocket.connected;
+                    generateBtn.disabled = !inSocket;
                     generateBtn.textContent = 'توليد رمز';
                 }
             );
@@ -1520,25 +1520,46 @@
             clearIncomingViewer();
         });
 
-        window.electronAPI.getHostInfo().then((info) => {
+        function getHostInfoWithTimeout(timeoutMs) {
+            return new Promise((resolve, reject) => {
+                const timeout = setTimeout(
+                    () => reject(new Error('Timed out retrieving the local host service address.')),
+                    timeoutMs
+                );
+                window.electronAPI.getHostInfo().then(
+                    (info) => {
+                        clearTimeout(timeout);
+                        resolve(info);
+                    },
+                    (error) => {
+                        clearTimeout(timeout);
+                        reject(error);
+                    }
+                );
+            });
+        }
+
+        getHostInfoWithTimeout(5000).then((info) => {
             if (!info || !info.port) {
                 throw new Error('Local host server returned no listening port.');
             }
-            inSocket = io(`http://127.0.0.1:${info.port}`);
+            inSocket = io(`http://127.0.0.1:${info.port}`, {
+                timeout: 5000,
+                reconnectionDelay: 500,
+                reconnectionDelayMax: 2000
+            });
+            generateBtn.disabled = false;
+            generateBtn.textContent = 'توليد رمز';
             inSocket.on('connect', () => {
                 inSocket.emit('register-host-ui');
-                generateBtn.disabled = false;
-                generateBtn.textContent = 'توليد رمز';
                 hostConnectionStatus.textContent = 'جاهز لإنشاء جلسة داخل الشبكة المحلية.';
                 hostConnectionStatus.className = 'status-text ok';
             });
             inSocket.on('disconnect', () => {
-                generateBtn.disabled = true;
                 hostConnectionStatus.textContent = 'انقطع الاتصال بخدمة الاستقبال؛ جارٍ إعادة الاتصال.';
                 hostConnectionStatus.className = 'status-text err';
             });
             inSocket.on('connect_error', (error) => {
-                generateBtn.disabled = true;
                 console.error('Host connection failed:', error);
                 hostConnectionStatus.textContent = 'تعذر الاتصال بخدمة الاستقبال على هذا الحاسوب.';
                 hostConnectionStatus.className = 'status-text err';
@@ -1633,7 +1654,6 @@
         }).catch((error) => {
             console.error('Local host initialization failed:', error);
             generateBtn.disabled = true;
-            generateBtn.textContent = 'الخدمة غير متاحة';
             hostConnectionStatus.textContent = 'تعذر بدء خدمة الاستقبال؛ أعد تشغيل التطبيق.';
             hostConnectionStatus.className = 'status-text err';
         });
