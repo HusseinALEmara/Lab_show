@@ -704,6 +704,22 @@
         let isStudentControlEnabled = false;
         let isControlPermissionRequest = false;
         let controlPermissionRequestId = 0;
+        let inSocket = null;
+        let inPC = null;
+        let inPendingCandidates = [];
+        let hostCountdownTimer = null;
+        let isReceivingIncoming = false;
+        let isIncomingPaused = false;
+        let isTeacherControlEnabled = false;
+        let selectedStudentId = null;
+        let incomingStudentId = null;
+        let hostStudents = [];
+        let isFullscreen = false;
+        let hideControlsTimer = null;
+        let floatingWin = null;
+        const hasElectronBridge = Boolean(
+            window.electronAPI && typeof window.electronAPI.getHostInfo === 'function'
+        );
 
         function setOutgoingStatus(msg, type = '') {
             outgoingStatus.textContent = msg;
@@ -727,7 +743,7 @@
             studentPanel.classList.toggle('active', !isTeacherMode);
             teacherPanel.hidden = !isTeacherMode;
             teacherPanel.classList.toggle('active', isTeacherMode);
-            if (isReceivingIncoming) {
+            if (hasElectronBridge && isReceivingIncoming) {
                 window.electronAPI.setWindowSizeMode(isTeacherMode ? 'viewer' : 'compact');
                 if (isTeacherMode) {
                     window.electronAPI.showWindow();
@@ -748,7 +764,9 @@
             workspace.hidden = true;
             startScreen.hidden = false;
             document.body.classList.remove('viewer-active');
-            window.electronAPI.setWindowSizeMode('compact');
+            if (hasElectronBridge) {
+                window.electronAPI.setWindowSizeMode('compact');
+            }
         });
 
         function updateStudentControlUi(message) {
@@ -926,41 +944,43 @@
             syncTrayOutgoingState();
         }
 
-        window.electronAPI.onTrayStopBroadcast(() => {
-            stopOutgoingShare(true);
-            codeInput.value = '';
-            setOutgoingStatus('تم إيقاف البث.', '');
-        });
-
-        window.electronAPI.onTrayTogglePause(() => {
-            if (!isSharingOutgoing || !outStream || !outSocket) return;
-            const track = outStream.getVideoTracks()[0];
-            if (!track) return;
-
-            if (!isPausedOutgoing) {
-                setStudentControlEnabled(false);
-            }
-            isPausedOutgoing = !isPausedOutgoing;
-            track.enabled = !isPausedOutgoing;
-
-            if (isPausedOutgoing) {
-                outSocket.emit('sender-pause-sharing');
-                setOutgoingStatus('البث متوقف مؤقتاً', '');
-            } else {
-                outSocket.emit('sender-resume-sharing');
-                setOutgoingStatus('جاري بث شاشتك الآن', 'ok');
-            }
-            updateStudentControlUi();
-            syncTrayOutgoingState();
-        });
-
         studentControlToggle.addEventListener('click', () => {
             setStudentControlEnabled(!isStudentControlEnabled);
         });
 
-        window.electronAPI.onTrayToggleStudentControl(() => {
-            setStudentControlEnabled(!isStudentControlEnabled);
-        });
+        if (hasElectronBridge) {
+            window.electronAPI.onTrayStopBroadcast(() => {
+                stopOutgoingShare(true);
+                codeInput.value = '';
+                setOutgoingStatus('تم إيقاف البث.', '');
+            });
+
+            window.electronAPI.onTrayTogglePause(() => {
+                if (!isSharingOutgoing || !outStream || !outSocket) return;
+                const track = outStream.getVideoTracks()[0];
+                if (!track) return;
+
+                if (!isPausedOutgoing) {
+                    setStudentControlEnabled(false);
+                }
+                isPausedOutgoing = !isPausedOutgoing;
+                track.enabled = !isPausedOutgoing;
+
+                if (isPausedOutgoing) {
+                    outSocket.emit('sender-pause-sharing');
+                    setOutgoingStatus('البث متوقف مؤقتاً', '');
+                } else {
+                    outSocket.emit('sender-resume-sharing');
+                    setOutgoingStatus('جاري بث شاشتك الآن', 'ok');
+                }
+                updateStudentControlUi();
+                syncTrayOutgoingState();
+            });
+
+            window.electronAPI.onTrayToggleStudentControl(() => {
+                setStudentControlEnabled(!isStudentControlEnabled);
+            });
+        }
 
         cancelBtn.addEventListener('click', () => {
             if (isSharingOutgoing) {
@@ -980,6 +1000,13 @@
                 codeInput.value = '';
                 setOutgoingStatus('تم إيقاف مشاركة الشاشة.', '');
                 return;
+            }
+
+            if (!hasElectronBridge) {
+                return setOutgoingStatus(
+                    'شغّل تطبيق Lab show المكتبي؛ فتح ملف HTML في المتصفح لا يدعم مشاركة الشاشة.',
+                    'err'
+                );
             }
 
             const code = codeInput.value.trim();
@@ -1151,20 +1178,6 @@
             if (e.key === 'Escape') cancelBtn.click();
         });
 
-        let inSocket = null;
-        let inPC = null;
-        let inPendingCandidates = [];
-        let hostCountdownTimer = null;
-        let isReceivingIncoming = false;
-        let isIncomingPaused = false;
-        let isTeacherControlEnabled = false;
-        let selectedStudentId = null;
-        let incomingStudentId = null;
-        let hostStudents = [];
-        let isFullscreen = false;
-        let hideControlsTimer = null;
-        let floatingWin = null;
-
         function captureFrozenFrameToCanvas(videoEl, canvasEl) {
             if (!videoEl || !canvasEl || !videoEl.videoWidth || !videoEl.videoHeight) return;
             canvasEl.width = videoEl.videoWidth;
@@ -1325,7 +1338,9 @@
         });
         function setFullscreenState(enable) {
             isFullscreen = enable;
-            window.electronAPI.setFullScreen(enable);
+            if (hasElectronBridge) {
+                window.electronAPI.setFullScreen(enable);
+            }
             if (enable) {
                 videoBox.classList.add('is-fullscreen', 'show-controls');
                 fsIconExpand.style.display = 'none';
@@ -1522,6 +1537,10 @@
 
         function getHostInfoWithTimeout(timeoutMs) {
             return new Promise((resolve, reject) => {
+                if (!hasElectronBridge) {
+                    reject(new Error('Lab show must be run as an Electron desktop application.'));
+                    return;
+                }
                 const timeout = setTimeout(
                     () => reject(new Error('Timed out retrieving the local host service address.')),
                     timeoutMs
@@ -1654,7 +1673,9 @@
         }).catch((error) => {
             console.error('Local host initialization failed:', error);
             generateBtn.disabled = true;
-            hostConnectionStatus.textContent = 'تعذر بدء خدمة الاستقبال؛ أعد تشغيل التطبيق.';
+            hostConnectionStatus.textContent = hasElectronBridge
+                ? 'تعذر بدء خدمة الاستقبال؛ أعد تشغيل التطبيق.'
+                : 'افتح تطبيق Lab show المكتبي؛ لا تفتح ملف HTML مباشرة في المتصفح.';
             hostConnectionStatus.className = 'status-text err';
         });
     </script>
