@@ -1,7 +1,7 @@
 {
     "name": "lab-show",
     "productName": "Lab show",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "Lab show - Local Network Screen Sharing Desktop App",
     "main": "main.js",
     "scripts": {
