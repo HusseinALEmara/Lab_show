@@ -15,6 +15,7 @@ const {
 } = require('electron');
 
 const { createLocalHostNode, UDP_DISCOVERY_PORT } = require('./server');
+const { isAllowedControlKey, pressControlKey } = require('./keyboard-controls');
 
 let mainWindow = null;
 let tray = null;
@@ -23,6 +24,7 @@ let hostInfo = { port: 0, ips: [] };
 let isQuitting = false;
 let isOutgoingSharing = false;
 let isOutgoingPaused = false;
+let isStudentControlEnabled = false;
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -160,6 +162,15 @@ function rebuildTrayMenu() {
             }
         },
         {
+            label: isStudentControlEnabled ? 'إيقاف تحكم الأستاذ بالمفاتيح' : 'السماح للأستاذ بالمفاتيح',
+            enabled: isOutgoingSharing && !isOutgoingPaused,
+            click: () => {
+                if (mainWindow && mainWindow.webContents) {
+                    mainWindow.webContents.send('tray-toggle-student-control');
+                }
+            }
+        },
+        {
             label: 'إيقاف البث',
             enabled: isOutgoingSharing,
             click: () => {
@@ -221,6 +232,7 @@ function createWindowAndTray() {
             backgroundThrottling: false
         }
     });
+    mainWindow.setContentProtection(true);
 
     mainWindow.webContents.setWindowOpenHandler(({ frameName }) => {
         if (frameName === 'FloatingPlayer') {
@@ -349,5 +361,32 @@ ipcMain.on('set-outgoing-state', (_e, state) => {
         isOutgoingSharing = Boolean(state);
         isOutgoingPaused = false;
     }
+    if (!isOutgoingSharing || isOutgoingPaused) {
+        isStudentControlEnabled = false;
+    }
     rebuildTrayMenu();
+});
+
+ipcMain.on('set-student-control-enabled', (event, enabled) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) return;
+    isStudentControlEnabled = Boolean(enabled) && isOutgoingSharing && !isOutgoingPaused;
+    rebuildTrayMenu();
+});
+
+ipcMain.handle('apply-student-control-key', async (event, key) => {
+    if (
+        !mainWindow ||
+        event.sender !== mainWindow.webContents ||
+        !isStudentControlEnabled ||
+        !isOutgoingSharing ||
+        isOutgoingPaused
+    ) {
+        return { ok: false, message: 'التحكم غير مفعّل على هذا الجهاز.' };
+    }
+    if (!isAllowedControlKey(key)) {
+        return { ok: false, message: 'هذا المفتاح غير مسموح.' };
+    }
+
+    await pressControlKey(key);
+    return { ok: true };
 });

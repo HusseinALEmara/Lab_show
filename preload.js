@@ -9,11 +9,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     hideToBackground: () => ipcRenderer.send('hide-to-background'),
     showWindow: () => ipcRenderer.send('show-window'),
     setOutgoingState: (state) => ipcRenderer.send('set-outgoing-state', state),
+    setStudentControlEnabled: (enabled) => ipcRenderer.send('set-student-control-enabled', enabled),
+    applyStudentControlKey: (key) => ipcRenderer.invoke('apply-student-control-key', key),
 
     onTrayStopBroadcast: (cb) => {
         ipcRenderer.on('tray-stop-broadcast', () => cb());
     },
     onTrayTogglePause: (cb) => {
         ipcRenderer.on('tray-toggle-pause', () => cb());
+    },
+    onTrayToggleStudentControl: (cb) => {
+        ipcRenderer.on('tray-toggle-student-control', () => cb());
     }
 });

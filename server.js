@@ -3,8 +3,44 @@ const os = require('os');
 const dgram = require('dgram');
 const express = require('express');
 const { Server } = require('socket.io');
+const { isAllowedControlKey } = require('./keyboard-controls');
 
 const UDP_DISCOVERY_PORT = 41234;
+const CONTROL_RATE_LIMIT = 12;
+
+function isLoopbackAddress(address) {
+    return address === '::1' ||
+        address === '127.0.0.1' ||
+        address === '::ffff:127.0.0.1';
+}
+
+function ipv4ToNumber(address) {
+    const parts = address.split('.').map(Number);
+    if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+        return null;
+    }
+    return parts.reduce((value, part) => ((value << 8) | part) >>> 0, 0);
+}
+
+function isOnLocalSubnet(address) {
+    if (isLoopbackAddress(address)) return true;
+    const normalizedAddress = address && address.startsWith('::ffff:')
+        ? address.slice('::ffff:'.length)
+        : address;
+    const remoteNumber = normalizedAddress ? ipv4ToNumber(normalizedAddress) : null;
+    if (remoteNumber === null) return false;
+
+    return Object.values(os.networkInterfaces()).some((interfaces) =>
+        interfaces && interfaces.some((iface) => {
+            if (iface.family !== 'IPv4' || iface.internal || !iface.netmask) return false;
+            const localNumber = ipv4ToNumber(iface.address);
+            const maskNumber = ipv4ToNumber(iface.netmask);
+            return localNumber !== null &&
+                maskNumber !== null &&
+                (remoteNumber & maskNumber) === (localNumber & maskNumber);
+        })
+    );
+}
 
 function getLocalIPs() {
     const interfaces = os.networkInterfaces();
@@ -92,15 +128,34 @@ function createLocalHostNode() {
     let udpSocket = null;
     let listeningPort = 0;
 
+    function getStudentBySocketId(socketId) {
+        if (!activeSession) return null;
+        for (const student of activeSession.students.values()) {
+            if (student.socketId === socketId) return student;
+        }
+        return null;
+    }
+
     function serializeSession() {
         if (!activeSession) return null;
+        const students = Array.from(activeSession.students.values(), (student) => ({
+            id: student.id,
+            isSharing: student.isSharing,
+            isPaused: student.isPaused,
+            controlEnabled: student.controlEnabled
+        }));
+        const selectedStudent = activeSession.students.get(activeSession.selectedStudentId);
+
         return {
             code: activeSession.code,
             durationMinutes: activeSession.durationMinutes,
             expiresAt: activeSession.expiresAt,
-            senderConnected: Boolean(activeSession.senderSocketId),
-            isSharing: activeSession.isSharing,
-            isPaused: activeSession.isPaused
+            senderConnected: students.length > 0,
+            isSharing: students.some((student) => student.isSharing),
+            isPaused: Boolean(selectedStudent && selectedStudent.isPaused),
+            controlEnabled: Boolean(selectedStudent && selectedStudent.controlEnabled),
+            selectedStudentId: activeSession.selectedStudentId,
+            students
         };
     }
 
@@ -110,16 +165,32 @@ function createLocalHostNode() {
         }
     }
 
+    function setControlPermission(student, enabled) {
+        if (!activeSession || student.controlEnabled === enabled) return;
+        student.controlEnabled = enabled;
+        const payload = { studentId: student.id, enabled };
+        io.to(student.socketId).emit('student-control-permission-changed', payload);
+        if (hostUiSocketId) {
+            io.to(hostUiSocketId).emit('control-permission-changed', payload);
+        }
+        notifyHostUI();
+    }
+
+    function stopSelectedStudent() {
+        if (!activeSession || !activeSession.selectedStudentId) return;
+        const student = activeSession.students.get(activeSession.selectedStudentId);
+        if (student) {
+            io.to(student.socketId).emit('student-stop-viewing', { studentId: student.id });
+        }
+        activeSession.selectedStudentId = null;
+    }
+
     function terminateSession(reason, senderMessage) {
         if (!activeSession) return;
+        if (activeSession.timer) clearTimeout(activeSession.timer);
 
-        if (activeSession.timer) {
-            clearTimeout(activeSession.timer);
-            activeSession.timer = null;
-        }
-
-        if (activeSession.senderSocketId) {
-            io.to(activeSession.senderSocketId).emit('session-terminated', {
+        for (const student of activeSession.students.values()) {
+            io.to(student.socketId).emit('session-terminated', {
                 reason,
                 message: senderMessage
             });
@@ -127,7 +198,6 @@ function createLocalHostNode() {
 
         activeSession = null;
         notifyHostUI();
-
         if (reason === 'expired' && hostUiSocketId) {
             io.to(hostUiSocketId).emit('host-expired-notice');
         }
@@ -135,11 +205,18 @@ function createLocalHostNode() {
 
     io.on('connection', (socket) => {
         socket.on('register-host-ui', () => {
+            if (!isLoopbackAddress(socket.handshake.address)) return;
             hostUiSocketId = socket.id;
             notifyHostUI();
         });
 
         socket.on('host-create-code', async ({ durationMinutes }, callback) => {
+            if (!isLoopbackAddress(socket.handshake.address)) {
+                if (typeof callback === 'function') {
+                    callback({ ok: false, message: 'يجب إنشاء الجلسة من هذا الجهاز.' });
+                }
+                return;
+            }
             hostUiSocketId = socket.id;
 
             if (activeSession) {
@@ -157,21 +234,18 @@ function createLocalHostNode() {
             }
             reservingCode = null;
 
-            if (!uniqueCode) {
-                uniqueCode = generateSixDigitCode();
-            }
+            if (!uniqueCode) uniqueCode = generateSixDigitCode();
 
             const parsedMinutes = Number(durationMinutes);
             const hasDuration = Number.isFinite(parsedMinutes) && parsedMinutes > 0;
             const expiresAt = hasDuration ? Date.now() + parsedMinutes * 60 * 1000 : null;
-
             activeSession = {
                 code: uniqueCode,
                 durationMinutes: hasDuration ? parsedMinutes : null,
                 expiresAt,
-                senderSocketId: null,
-                isSharing: false,
-                isPaused: false,
+                students: new Map(),
+                nextStudentNumber: 1,
+                selectedStudentId: null,
                 timer: null
             };
 
@@ -189,117 +263,224 @@ function createLocalHostNode() {
 
         socket.on('host-delete-code', () => {
             if (socket.id !== hostUiSocketId) return;
-            terminateSession('deleted-by-host', 'تم إيقاف البث وحذف الرمز من قِبل المستقبِل.');
+            terminateSession('deleted-by-host', 'تم إيقاف البث وحذف الرمز من قِبل الأستاذ.');
         });
 
         socket.on('sender-join-code', ({ code }, callback) => {
+            const reject = (message) => {
+                if (typeof callback === 'function') callback({ ok: false, message });
+            };
             const cleanCode = (code || '').trim();
-
             if (!activeSession || activeSession.code !== cleanCode) {
-                if (typeof callback === 'function') {
-                    return callback({ ok: false, message: 'الرمز غير صحيح أو منتهي.' });
-                }
+                reject('الرمز غير صحيح أو منتهي.');
                 return;
             }
-
             if (activeSession.expiresAt && Date.now() >= activeSession.expiresAt) {
                 terminateSession('expired', 'انتهت مدة صلاحية الرمز.');
-                if (typeof callback === 'function') {
-                    return callback({ ok: false, message: 'انتهت صلاحية الرمز.' });
-                }
+                reject('انتهت صلاحية الرمز.');
                 return;
             }
 
-            if (activeSession.senderSocketId && activeSession.senderSocketId !== socket.id) {
-                if (typeof callback === 'function') {
-                    return callback({ ok: false, message: 'الرمز مستخدم حالياً من قِبل جهاز آخر.' });
-                }
-                return;
+            let student = getStudentBySocketId(socket.id);
+            if (!student) {
+                const studentId = String(activeSession.nextStudentNumber++).padStart(3, '0');
+                student = {
+                    id: studentId,
+                    socketId: socket.id,
+                    isSharing: false,
+                    isPaused: false,
+                    controlEnabled: false,
+                    controlRateWindowStart: 0,
+                    controlRateCount: 0
+                };
+                activeSession.students.set(studentId, student);
             }
 
-            activeSession.senderSocketId = socket.id;
-            activeSession.isSharing = false;
-            activeSession.isPaused = false;
             notifyHostUI();
-
             if (typeof callback === 'function') {
-                callback({ ok: true, expiresAt: activeSession.expiresAt });
+                callback({
+                    ok: true,
+                    expiresAt: activeSession.expiresAt,
+                    studentId: student.id
+                });
             }
         });
 
         socket.on('sender-start-sharing', () => {
-            if (!activeSession || activeSession.senderSocketId !== socket.id) return;
-            activeSession.isSharing = true;
-            activeSession.isPaused = false;
+            const student = getStudentBySocketId(socket.id);
+            if (!student) return;
+            student.isSharing = true;
+            student.isPaused = false;
             notifyHostUI();
         });
 
+        socket.on('sender-control-permission', ({ enabled }, callback) => {
+            const student = getStudentBySocketId(socket.id);
+            if (!student || typeof enabled !== 'boolean') {
+                if (typeof callback === 'function') {
+                    callback({ ok: false, message: 'لا توجد جلسة مشاركة نشطة.' });
+                }
+                return;
+            }
+            if (!enabled) {
+                setControlPermission(student, false);
+                if (typeof callback === 'function') callback({ ok: true, enabled: false });
+                return;
+            }
+            if (!student.isSharing || student.isPaused) {
+                if (typeof callback === 'function') callback({ ok: false, message: 'ابدأ بث الشاشة أولاً.' });
+                return;
+            }
+            if (!isOnLocalSubnet(socket.handshake.address)) {
+                if (typeof callback === 'function') {
+                    callback({ ok: false, message: 'التحكم متاح داخل الشبكة المحلية فقط.' });
+                }
+                return;
+            }
+            setControlPermission(student, true);
+            if (typeof callback === 'function') callback({ ok: true, enabled: true });
+        });
+
+        socket.on('host-select-student', ({ studentId }, callback) => {
+            const reject = (message) => {
+                if (typeof callback === 'function') callback({ ok: false, message });
+            };
+            if (socket.id !== hostUiSocketId || !activeSession) {
+                reject('مصدر التحكم غير مصرح.');
+                return;
+            }
+            const student = activeSession.students.get(studentId);
+            if (!student || !student.isSharing || student.isPaused) {
+                reject('الطالب غير متصل بالبث حالياً.');
+                return;
+            }
+            if (activeSession.selectedStudentId !== student.id) {
+                stopSelectedStudent();
+                activeSession.selectedStudentId = student.id;
+                io.to(student.socketId).emit('student-start-viewing', { studentId: student.id });
+                notifyHostUI();
+            }
+            if (typeof callback === 'function') callback({ ok: true, studentId: student.id });
+        });
+
+        socket.on('host-control-key', ({ studentId, key }, callback) => {
+            const reject = (message) => {
+                if (typeof callback === 'function') callback({ ok: false, message });
+            };
+            if (socket.id !== hostUiSocketId) {
+                reject('مصدر التحكم غير مصرح.');
+                return;
+            }
+            const student = activeSession && activeSession.students.get(studentId);
+            if (
+                !student ||
+                activeSession.selectedStudentId !== studentId ||
+                !student.isSharing ||
+                student.isPaused ||
+                !student.controlEnabled
+            ) {
+                reject('لم يفعّل الطالب التحكم لهذا البث.');
+                return;
+            }
+            if (!isAllowedControlKey(key)) {
+                reject('هذا المفتاح غير مسموح.');
+                return;
+            }
+
+            const now = Date.now();
+            if (now - student.controlRateWindowStart >= 1000) {
+                student.controlRateWindowStart = now;
+                student.controlRateCount = 0;
+            }
+            if (student.controlRateCount >= CONTROL_RATE_LIMIT) {
+                reject('تم تجاوز حد ضغطات المفاتيح المسموح.');
+                return;
+            }
+            student.controlRateCount += 1;
+            io.to(student.socketId).emit('student-control-key', { studentId, key });
+            if (typeof callback === 'function') callback({ ok: true });
+        });
+
         socket.on('sender-pause-sharing', () => {
-            if (!activeSession || activeSession.senderSocketId !== socket.id) return;
-            activeSession.isPaused = true;
+            const student = getStudentBySocketId(socket.id);
+            if (!student) return;
+            student.isPaused = true;
+            setControlPermission(student, false);
             notifyHostUI();
             if (hostUiSocketId) {
-                io.to(hostUiSocketId).emit('sender-paused-sharing');
+                io.to(hostUiSocketId).emit('sender-paused-sharing', { studentId: student.id });
             }
         });
 
         socket.on('sender-resume-sharing', () => {
-            if (!activeSession || activeSession.senderSocketId !== socket.id) return;
-            activeSession.isPaused = false;
+            const student = getStudentBySocketId(socket.id);
+            if (!student) return;
+            student.isPaused = false;
             notifyHostUI();
             if (hostUiSocketId) {
-                io.to(hostUiSocketId).emit('sender-resumed-sharing');
+                io.to(hostUiSocketId).emit('sender-resumed-sharing', { studentId: student.id });
             }
         });
 
         socket.on('sender-stop-sharing', () => {
-            if (!activeSession || activeSession.senderSocketId !== socket.id) return;
-            activeSession.isSharing = false;
-            activeSession.isPaused = false;
-            activeSession.senderSocketId = null;
+            const student = getStudentBySocketId(socket.id);
+            if (!student) return;
+            if (activeSession.selectedStudentId === student.id) stopSelectedStudent();
+            student.isSharing = false;
+            student.isPaused = false;
+            setControlPermission(student, false);
             notifyHostUI();
             if (hostUiSocketId) {
-                io.to(hostUiSocketId).emit('sender-stopped-sharing');
+                io.to(hostUiSocketId).emit('sender-stopped-sharing', { studentId: student.id });
             }
         });
 
-        socket.on('webrtc-offer', ({ offer }) => {
-            if (!activeSession || activeSession.senderSocketId !== socket.id) return;
+        socket.on('webrtc-offer', ({ studentId, offer }) => {
+            const student = getStudentBySocketId(socket.id);
+            if (
+                !student ||
+                student.id !== studentId ||
+                activeSession.selectedStudentId !== student.id ||
+                !student.isSharing ||
+                student.isPaused
+            ) return;
             if (hostUiSocketId) {
-                io.to(hostUiSocketId).emit('webrtc-offer', { offer });
+                io.to(hostUiSocketId).emit('webrtc-offer', { studentId, offer });
             }
         });
 
-        socket.on('webrtc-answer', ({ answer }) => {
-            if (socket.id !== hostUiSocketId) return;
-            if (activeSession && activeSession.senderSocketId) {
-                io.to(activeSession.senderSocketId).emit('webrtc-answer', { answer });
+        socket.on('webrtc-answer', ({ studentId, answer }) => {
+            if (socket.id !== hostUiSocketId || !activeSession) return;
+            if (activeSession.selectedStudentId !== studentId) return;
+            const student = activeSession.students.get(studentId);
+            if (student) {
+                io.to(student.socketId).emit('webrtc-answer', { studentId, answer });
             }
         });
-        socket.on('webrtc-ice-candidate', ({ candidate, target }) => {
-            if (target === 'host' && activeSession && activeSession.senderSocketId === socket.id) {
+
+        socket.on('webrtc-ice-candidate', ({ candidate, target, studentId }) => {
+            if (!activeSession || activeSession.selectedStudentId !== studentId) return;
+            const student = activeSession.students.get(studentId);
+            if (!student) return;
+
+            if (target === 'host' && student.socketId === socket.id) {
                 if (hostUiSocketId) {
-                    io.to(hostUiSocketId).emit('webrtc-ice-candidate', { candidate });
+                    io.to(hostUiSocketId).emit('webrtc-ice-candidate', { candidate, studentId });
                 }
             } else if (target === 'sender' && socket.id === hostUiSocketId) {
-                if (activeSession && activeSession.senderSocketId) {
-                    io.to(activeSession.senderSocketId).emit('webrtc-ice-candidate', { candidate });
-                }
+                io.to(student.socketId).emit('webrtc-ice-candidate', { candidate, studentId });
             }
         });
 
         socket.on('disconnect', () => {
-            if (socket.id === hostUiSocketId) {
-                hostUiSocketId = null;
-            }
-            if (activeSession && activeSession.senderSocketId === socket.id) {
-                activeSession.senderSocketId = null;
-                activeSession.isSharing = false;
-                activeSession.isPaused = false;
-                notifyHostUI();
-                if (hostUiSocketId) {
-                    io.to(hostUiSocketId).emit('sender-left');
-                }
+            if (socket.id === hostUiSocketId) hostUiSocketId = null;
+            const student = getStudentBySocketId(socket.id);
+            if (!student) return;
+            if (activeSession.selectedStudentId === student.id) stopSelectedStudent();
+            activeSession.students.delete(student.id);
+            notifyHostUI();
+            if (hostUiSocketId) {
+                io.to(hostUiSocketId).emit('sender-left', { studentId: student.id });
             }
         });
     });
