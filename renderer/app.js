@@ -168,14 +168,8 @@
         const isGrid = dom.studentRoster.classList.toggle('grid-view');
         dom.rosterViewBtn.textContent = isGrid ? 'عرض قائمة' : 'عرض شبكي';
     });
-    dom.tabCode.addEventListener('click', () => {
-        if (role !== 'teacher') setRole('teacher');
-        openTeacherPage('code');
-    });
-    dom.tabBroadcasts.addEventListener('click', () => {
-        if (role !== 'teacher') setRole('teacher');
-        openTeacherPage('broadcasts');
-    });
+    dom.tabCode.addEventListener('click', () => openTeacherPage('code'));
+    dom.tabBroadcasts.addEventListener('click', () => openTeacherPage('broadcasts'));
 
     bindSegmented(dom.studentConnectionMode, (mode) => {
         dom.globalStudentFields.hidden = mode !== 'global';

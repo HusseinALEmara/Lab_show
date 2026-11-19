@@ -24,19 +24,13 @@
                         <small>أدخل رمز الأستاذ وعنوان بثك</small>
                     </span>
                 </button>
-                <div class="role-option receiver receiver-group">
-                    <button class="option-main" id="teacherStartBtn">
-                        <span class="option-icon" aria-hidden="true">▣</span>
-                        <span class="option-text">
-                            <strong>أستقبل البثوث</strong>
-                            <small>أنشئ رمزاً وشاهد شاشات الطلاب</small>
-                        </span>
-                    </button>
-                    <div class="receiver-tabs" role="tablist">
-                        <button id="tabCode" class="receiver-tab active" role="tab" aria-selected="true">توليد رمز</button>
-                        <button id="tabBroadcasts" class="receiver-tab" role="tab" aria-selected="false">البثوث الحالية</button>
-                    </div>
-                </div>
+                <button class="role-option receiver" id="teacherStartBtn">
+                    <span class="option-icon" aria-hidden="true">▣</span>
+                    <span class="option-text">
+                        <strong>أستقبل البثوث</strong>
+                        <small>أنشئ رمزاً وشاهد شاشات الطلاب</small>
+                    </span>
+                </button>
             </div>
         </section>
         <div class="live-status-bar" id="liveStatusBar" hidden>
@@ -123,6 +117,11 @@
             <button class="icon-btn" id="backFromTeacherBtn" title="العودة" aria-label="رجوع">←</button>
             <h2>استقبال البثوث</h2>
         </header>
+
+        <div class="teacher-tabbar" role="tablist">
+            <button id="tabCode" class="screen-tab active" role="tab" aria-selected="true">توليد رمز</button>
+            <button id="tabBroadcasts" class="screen-tab" role="tab" aria-selected="false">البثوث الحالية</button>
+        </div>
 
         <div class="teacher-pages">
             <div class="teacher-page" id="codePage">

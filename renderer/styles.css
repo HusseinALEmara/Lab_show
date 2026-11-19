@@ -310,44 +310,19 @@ body.viewer-active .video-placeholder { display: none; }
 }
 .direction-pad .key-up { grid-column: 2; }
 
-/* التبويبات داخل زر استقبال البثوث */
-.receiver-group {
+/* تبويبات شاشة المستقبل — أعلى الشاشة */
+.teacher-tabbar {
     display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 8px;
-}
-.option-main {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    width: 100%;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: var(--text);
-    text-align: right;
-    cursor: pointer;
-}
-.receiver-tabs {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 5px;
+    justify-content: center;
+    gap: 6px;
+    flex: 0 0 auto;
     padding: 4px;
-    border-radius: 10px;
-    background: var(--bg-2);
+    border-radius: 12px;
+    background: var(--panel-2);
+    width: fit-content;
+    max-width: 100%;
+    align-self: center;
 }
-.receiver-tab {
-    min-height: 32px;
-    border: none;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--muted);
-    font-size: 0.76rem;
-    font-weight: 700;
-    cursor: pointer;
-}
-.receiver-tab.active { background: var(--teal); color: #fff; }
 
 /* شريط حالة البث في الشاشة الرئيسية */
 .live-status-bar {
