@@ -1,59 +1,63 @@
 {
-    "name": "lab-show",
+  "name": "lab-show",
+  "productName": "Lab show",
+  "version": "2.4.0",
+  "description": "تطبيق سطح مكتب لمشاركة الشاشات والتحكم داخل شبكة المختبر المحلية",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "preview": "node tools/preview-server.js",
+    "relay": "node tools/global-relay.js",
+    "test": "node --test",
+    "check": "node --check main.js && node --check preload.js && node --check renderer/app.js && node --check src/session-fields.js && node --check src/session-store.js && node --check src/server.js && node --check src/app-lifecycle.js && node --check src/keyboard-controls.js",
+    "build": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.labshow.desktop",
     "productName": "Lab show",
-    "version": "1.0.1",
-    "description": "Lab show - Local Network Screen Sharing Desktop App",
-    "main": "main.js",
-    "scripts": {
-        "start": "electron .",
-        "build": "electron-builder --win",
-        "test": "node --test"
+    "directories": {
+      "output": "dist"
     },
-    "build": {
-        "appId": "com.labshow.desktop",
-        "productName": "Lab show",
-        "directories": {
-            "output": "dist"
-        },
-        "files": [
-            "main.js",
-            "preload.js",
-            "server.js",
-            "renderer/**/*",
-            "package.json",
-            "!.container/**",
-            "!dist/**",
-            "!bootstrap.ps1",
-            "!install.bat",
-            "!run.bat"
-        ],
-        "win": {
-            "signAndEditExecutable": false,
-            "target": [
-                {
-                    "target": "nsis",
-                    "arch": [
-                        "x64"
-                    ]
-                }
-            ]
-        },
-        "nsis": {
-            "oneClick": false,
-            "allowToChangeInstallationDirectory": true,
-            "createDesktopShortcut": true,
-            "createStartMenuShortcut": true,
-            "shortcutName": "Lab show"
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "renderer/**/*",
+      "package.json",
+      "!.container/**",
+      "!dist/**",
+      "!tests/**",
+      "!PLAN.md",
+      "!APPLICATION_VISION.md",
+      "!*.bat",
+      "!*.ps1"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
         }
+      ]
     },
-    "dependencies": {
-        "express": "^4.21.0",
-        "@nut-tree-fork/libnut-win32": "^2.7.5",
-        "socket.io": "^4.8.1",
-        "socket.io-client": "^4.8.1"
-    },
-    "devDependencies": {
-        "electron": "^35.0.0",
-        "electron-builder": "^25.1.8"
+    "nsis": {
+      "oneClick": false,
+      "include": "build/installer.nsh",
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Lab show"
     }
+  },
+  "dependencies": {
+    "@nut-tree-fork/libnut-win32": "^2.7.5",
+    "express": "^4.21.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8"
+  }
 }

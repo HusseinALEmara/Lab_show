@@ -18,10 +18,7 @@ function isAllowedControlKey(key) {
 }
 
 function pressControlKey(key) {
-    if (!isAllowedControlKey(key)) {
-        throw new Error('Unsupported remote control key.');
-    }
-
+    if (!isAllowedControlKey(key)) throw new Error('مفتاح تحكم غير مدعوم.');
     const { keyTap } = require('@nut-tree-fork/libnut-win32');
     keyTap(CONTROL_KEYS[key]);
 }

@@ -22,6 +22,10 @@ config.local.*
 .DS_Store
 Thumbs.db
 
+# Development-only files (not published)
+/tests/
+/PLAN.md
+
 # Temporary and test output
 .cache/
 coverage/

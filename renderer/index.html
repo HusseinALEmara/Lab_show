@@ -3,1682 +3,254 @@
 
 <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Lab show</title>
-    <style>
-        [hidden] {
-            display: none !important;
-        }
-
-        * {
-            box-sizing: border-box;
-            font-family: system-ui, "Segoe UI", Tahoma, sans-serif;
-        }
-
-        body {
-            margin: 0;
-            min-height: 100vh;
-            background: #0f172a;
-            color: #f8fafc;
-            padding: 18px;
-            display: flex;
-            gap: 18px;
-            overflow: hidden;
-        }
-
-        .control-column {
-            width: 100%;
-            max-width: 434px;
-            margin: 0 auto;
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
-            flex-shrink: 0;
-            max-height: calc(100vh - 36px);
-            overflow-y: auto;
-        }
-
-        body.viewer-active .control-column {
-            width: 340px;
-            margin: 0;
-        }
-
-        .card {
-            background: #1e293b;
-            border: 1px solid #334155;
-            border-radius: 14px;
-            padding: 18px;
-        }
-
-        .role-switcher {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-        }
-
-        .role-switcher button {
-            background: #1e293b;
-            border: 1px solid #334155;
-            color: #cbd5e1;
-        }
-
-        .role-switcher button.active {
-            background: #075985;
-            border-color: #0ea5e9;
-            color: #ffffff;
-        }
-
-        .role-panel {
-            display: none;
-            flex-direction: column;
-            gap: 14px;
-        }
-
-        .role-panel.active {
-            display: flex;
-        }
-
-        .start-screen {
-            width: 100%;
-        }
-
-        .start-screen p,
-        .workspace-note {
-            color: #cbd5e1;
-            font-size: 0.9rem;
-            line-height: 1.65;
-            margin: 0 0 14px;
-            text-align: center;
-        }
-
-        .role-actions {
-            display: grid;
-            gap: 10px;
-        }
-
-        .role-actions button {
-            min-height: 56px;
-            font-size: 1.05rem;
-        }
-
-        .role-actions .student-action {
-            background: #0284c7;
-            color: #ffffff;
-        }
-
-        .role-actions .teacher-action {
-            background: #059669;
-            color: #ffffff;
-        }
-
-        .workspace {
-            width: 100%;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .workspace-header {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-
-        .workspace-header .role-switcher {
-            flex: 1;
-        }
-
-        .home-btn {
-            background: #334155;
-            color: #f8fafc;
-        }
-
-        .workspace-note {
-            margin: -4px 0 0;
-            font-size: 0.76rem;
-        }
-
-        .student-identity {
-            margin-top: 10px;
-            padding: 8px;
-            border-radius: 8px;
-            background: #0f172a;
-            color: #38bdf8;
-            font-weight: 700;
-            text-align: center;
-            direction: ltr;
-        }
-
-        .student-roster {
-            display: grid;
-            gap: 8px;
-            max-height: 230px;
-            overflow-y: auto;
-        }
-
-        .student-card {
-            display: grid;
-            grid-template-columns: 1fr auto;
-            gap: 4px 10px;
-            align-items: center;
-            padding: 10px;
-            border: 1px solid #334155;
-            border-radius: 10px;
-            background: #0f172a;
-        }
-
-        .student-card.selected {
-            border-color: #38bdf8;
-            background: #082f49;
-        }
-
-        .student-card-title {
-            font-weight: 800;
-            direction: ltr;
-        }
-
-        .student-card-status {
-            color: #94a3b8;
-            font-size: 0.78rem;
-        }
-
-        .student-card button {
-            grid-row: span 2;
-            min-width: 90px;
-            background: #075985;
-            color: #ffffff;
-        }
-
-        .app-title {
-            font-size: 1.35rem;
-            font-weight: 800;
-            color: #38bdf8;
-            margin: 0 0 12px;
-            text-align: center;
-        }
-
-        input.code-input {
-            width: 100%;
-            padding: 12px;
-            font-size: 1.6rem;
-            letter-spacing: 6px;
-            text-align: center;
-            direction: ltr;
-            border-radius: 10px;
-            border: 2px solid #334155;
-            background: #0f172a;
-            color: #f8fafc;
-            outline: none;
-            margin-bottom: 12px;
-        }
-
-        input.code-input:focus {
-            border-color: #38bdf8;
-        }
-
-        .btn-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-        }
-
-        button {
-            border: none;
-            border-radius: 9px;
-            padding: 11px;
-            font-size: 0.98rem;
-            font-weight: 700;
-            cursor: pointer;
-            transition: opacity 0.15s;
-        }
-
-        button:hover {
-            opacity: 0.92;
-        }
-
-        button:disabled {
-            opacity: 0.6;
-            cursor: wait;
-        }
-
-        .btn-ok {
-            background: #059669;
-            color: #ffffff;
-        }
-
-        .btn-cancel {
-            background: #334155;
-            color: #f8fafc;
-        }
-
-        .btn-generate {
-            background: #0284c7;
-            color: #ffffff;
-            width: 100%;
-        }
-
-        .btn-danger {
-            background: #dc2626;
-            color: #ffffff;
-            width: 100%;
-            margin-top: 8px;
-        }
-
-        .status-text {
-            margin-top: 10px;
-            font-size: 0.85rem;
-            text-align: center;
-            min-height: 18px;
-            color: #94a3b8;
-        }
-
-        .status-text.ok {
-            color: #34d399;
-        }
-
-        .status-text.err {
-            color: #f87171;
-        }
-
-        .host-row {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-
-        select {
-            flex: 1;
-            padding: 9px;
-            border-radius: 8px;
-            border: 1px solid #475569;
-            background: #0f172a;
-            color: #f8fafc;
-            font-size: 0.88rem;
-        }
-
-        .generated-box {
-            display: none;
-            margin-top: 12px;
-            padding: 12px;
-            border-radius: 10px;
-            background: #0f172a;
-            border: 1px solid #334155;
-            text-align: center;
-        }
-
-        .generated-box.active {
-            display: block;
-        }
-
-        .generated-code {
-            font-size: 1.9rem;
-            font-weight: 800;
-            letter-spacing: 6px;
-            color: #34d399;
-            direction: ltr;
-            margin: 6px 0;
-        }
-
-        .host-meta {
-            font-size: 0.82rem;
-            color: #cbd5e1;
-            display: flex;
-            justify-content: space-between;
-            margin-top: 4px;
-        }
-
-        .viewer-column {
-            display: none;
-            flex: 1;
-            height: calc(100vh - 36px);
-        }
-
-        body.viewer-active .viewer-column {
-            display: flex;
-        }
-
-        .video-box {
-            flex: 1;
-            background: #020617;
-            border: 1px solid #334155;
-            border-radius: 14px;
-            position: relative;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            overflow: hidden;
-        }
-
-        video,
-        canvas.freeze-canvas {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-        }
-
-        canvas.freeze-canvas {
-            position: absolute;
-            inset: 0;
-            display: none;
-            background: #020617;
-            z-index: 5;
-        }
-
-        canvas.freeze-canvas.active {
-            display: block;
-        }
-
-        .corner-controls {
-            position: absolute;
-            bottom: 14px;
-            left: 14px;
-            display: flex;
-            gap: 8px;
-            z-index: 20;
-            transition: opacity 0.25s ease;
-        }
-
-        .corner-btn {
-            width: 44px;
-            height: 44px;
-            padding: 0;
-            border-radius: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.25);
-            background: rgba(15, 23, 42, 0.82);
-            color: #ffffff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-        }
-
-        .corner-btn:hover {
-            background: rgba(2, 132, 199, 0.92);
-        }
-
-        .video-box.is-fullscreen {
-            position: fixed;
-            inset: 0;
-            width: 100vw;
-            height: 100vh;
-            z-index: 99999;
-            background: #000000;
-            border: none;
-            border-radius: 0;
-            cursor: none;
-        }
-
-        .video-box.is-fullscreen.show-controls {
-            cursor: default;
-        }
-
-        .video-box.is-fullscreen .float-btn {
-            display: none;
-        }
-
-        .video-box.is-fullscreen .corner-controls {
-            bottom: 22px;
-            left: 22px;
-            opacity: 0;
-            pointer-events: none;
-        }
-
-        .video-box.is-fullscreen.show-controls .corner-controls {
-            opacity: 1;
-            pointer-events: auto;
-        }
-
-        .video-box.is-fullscreen .corner-btn {
-            width: 50px;
-            height: 50px;
-        }
-
-        .remote-controls-card {
-            display: none;
-        }
-
-        .remote-controls-card.active {
-            display: block;
-        }
-
-        .remote-control-note {
-            color: #cbd5e1;
-            font-size: 0.82rem;
-            line-height: 1.6;
-            margin: 0 0 10px;
-        }
-
-        .remote-control-status {
-            min-height: 20px;
-            color: #fbbf24;
-            font-size: 0.82rem;
-            margin: 8px 0;
-            text-align: center;
-        }
-
-        .remote-key-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 7px;
-            direction: ltr;
-        }
-
-        .direction-pad {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 7px;
-            direction: ltr;
-            margin-bottom: 8px;
-        }
-
-        .direction-pad button,
-        .remote-key-grid button {
-            min-height: 40px;
-            background: #334155;
-            color: #f8fafc;
-        }
-
-        .direction-pad button:disabled,
-        .remote-key-grid button:disabled {
-            cursor: not-allowed;
-        }
-
-        .direction-pad .key-up {
-            grid-column: 2;
-        }
-
-        .student-control-toggle {
-            width: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            background: #334155;
-            color: #f8fafc;
-        }
-
-        .student-control-toggle::after {
-            content: "متوقف";
-            padding: 3px 9px;
-            border-radius: 999px;
-            background: #475569;
-            font-size: 0.8rem;
-        }
-
-        .student-control-toggle.enabled {
-            background: #b45309;
-        }
-
-        .student-control-toggle.enabled::after {
-            content: "مفعّل";
-            background: #78350f;
-        }
-    </style>
+    <link rel="stylesheet" href="styles.css" />
 </head>
 
 <body>
-    <div class="control-column">
-        <section class="card start-screen" id="startScreen">
-            <h1 class="app-title">Lab show</h1>
-            <p>اختر طريقة استخدام التطبيق. يمكن التبديل بين الجانبين لاحقاً دون إيقاف جلسة قائمة.</p>
-            <div class="role-actions">
-                <button class="student-action" id="startStudentModeBtn">استقبال رمز</button>
-                <button class="teacher-action" id="startTeacherModeBtn">توليد رمز</button>
+    <!-- اختيار الوضع -->
+    <div class="role-screen" id="roleScreen">
+        <section class="role-card">
+            <img class="brand-mark" src="logo.png" alt="Lab show" />
+            <p class="eyebrow">شبكة المختبر المحلية</p>
+            <h1>Lab show</h1>
+            <p class="lead">اختر دورك. يمكنك العودة وتغيير الدور في أي وقت دون إيقاف بث قائم.</p>
+            <div class="role-options">
+                <button class="role-option broadcaster" id="studentStartBtn">
+                    <span class="option-icon" aria-hidden="true">↗</span>
+                    <span class="option-text">
+                        <strong>أبث شاشتي</strong>
+                        <small>أدخل رمز الأستاذ وعنوان بثك</small>
+                    </span>
+                </button>
+                <button class="role-option receiver" id="teacherStartBtn">
+                    <span class="option-icon" aria-hidden="true">▣</span>
+                    <span class="option-text">
+                        <strong>أستقبل البثوث</strong>
+                        <small>أنشئ رمزاً وشاهد شاشات الطلاب</small>
+                    </span>
+                </button>
             </div>
         </section>
+    </div>
 
-        <div class="workspace" id="workspace" hidden>
-            <div class="workspace-header">
-                <button class="home-btn" id="homeButton">الرئيسية</button>
-                <div class="role-switcher" role="tablist" aria-label="تبديل طريقة الاستخدام">
-                    <button id="studentRoleBtn" role="tab" aria-selected="false">استقبال رمز</button>
-                    <button id="teacherRoleBtn" role="tab" aria-selected="false">توليد رمز</button>
+    <!-- شاشة المُبث -->
+    <section class="screen student-screen" id="studentScreen" hidden>
+        <header class="screen-header">
+            <button class="icon-btn" id="backFromStudentBtn" title="العودة" aria-label="رجوع">←</button>
+            <h2>مشاركة الشاشة</h2>
+            <span class="header-hint">أنت المُبث</span>
+        </header>
+
+        <div class="student-layout">
+            <div class="card" id="codeCard">
+                <div class="card-heading">
+                    <span class="step-number">1</span>
+                    <h3>بيانات الانضمام</h3>
                 </div>
-            </div>
-            <p class="workspace-note">يمكنك التبديل بين الجانبين دون إيقاف البث الحالي.</p>
+                <label class="field-label" for="codeInput">الرمز الفريد</label>
+                <input id="codeInput" class="code-input" type="text" maxlength="6" inputmode="numeric"
+                    placeholder="أدخل رمز البث الذي حصلت عليه" autocomplete="off" />
 
-            <section class="role-panel" id="studentPanel" role="tabpanel" hidden>
-            <div class="card">
-                <input type="text" id="codeInput" class="code-input" maxlength="6" placeholder="رمز الأستاذ"
-                    inputmode="numeric" autofocus />
+                <div id="globalStudentFields" hidden>
+                    <label class="field-label" for="globalUsernameInput">اسم المستخدم</label>
+                    <input id="globalUsernameInput" class="title-input" type="text" maxlength="32"
+                        placeholder="اسم المستخدم للطرف المستقبل للبث" autocomplete="off" />
+                    <label class="field-label" for="globalLinkInput">رابط الجلسة العالمية</label>
+                    <input id="globalLinkInput" class="title-input ltr" type="text"
+                        placeholder="https://labshow.link/j?..." autocomplete="off" />
+                </div>
+
+                <label class="field-label" for="joinTitleInput">عنوان البث</label>
+                <input id="joinTitleInput" class="title-input" type="text" maxlength="80"
+                    placeholder="عنوان بثك المميز" autocomplete="off" />
+
+                <label class="field-label">نوع الاتصال</label>
+                <div class="segmented" id="studentConnectionMode" role="group">
+                    <button type="button" data-mode="local" class="active">الشبكة المحلية</button>
+                    <button type="button" data-mode="global">مطابقة عالمية</button>
+                </div>
 
                 <div class="btn-row">
-                    <button class="btn-ok" id="okBtn">مشاركة الشاشة</button>
-                    <button class="btn-cancel" id="cancelBtn">إلغاء</button>
+                    <button class="btn-ghost" id="cancelCodeBtn">إلغاء</button>
+                    <button class="btn-primary" id="approveCodeBtn">موافقة</button>
+                </div>
+                <div class="status-text" id="outgoingStatus">أدخل الرمز والعنوان لبدء البث</div>
+            </div>
+
+            <div class="card status-card" id="broadcastCard" hidden>
+                <div class="status-row">
+                    <span class="pill" id="broadcastStatusPill">يبث الآن</span>
+                    <span class="identity-chip" id="studentIdentity"></span>
                 </div>
 
-                <div class="status-text" id="outgoingStatus">أدخل رمز الأستاذ لبدء مشاركة شاشتك</div>
-                <div class="student-identity" id="studentIdentity" hidden></div>
-            </div>
-
-            <div class="card" id="studentPermissionCard" hidden>
-                <button class="student-control-toggle" id="studentControlToggle" role="switch" aria-checked="false"
-                    disabled>
-                    <span>السماح للأستاذ بالتحكم بمفاتيح الحاسوب</span>
+                <button class="title-display" id="titleDisplayBtn" type="button" title="اضغط لتعديل العنوان">
+                    <span id="titleDisplayText">—</span>
+                    <span class="edit-hint">تعديل ✎</span>
                 </button>
-                <div class="remote-control-status" id="studentControlStatus">التحكم متوقف حتى تسمح به.</div>
-            </div>
-            </section>
+                <div class="inline-form" id="titleEditor" hidden>
+                    <input id="broadcastTitleInput" class="title-input" type="text" maxlength="80"
+                        placeholder="عنوان البث" autocomplete="off" />
+                    <button class="btn-secondary" id="titleUpdateBtn">تحديث</button>
+                </div>
 
-            <section class="role-panel" id="teacherPanel" role="tabpanel" hidden>
-            <div class="card">
-                <div class="host-row">
-                    <select id="durationSelect" aria-label="مدة صلاحية الرمز">
+                <button class="btn-warning full" id="studentControlToggle" role="switch" aria-checked="false" disabled>
+                    السماح بالتحكم بشاشتي
+                </button>
+                <div class="split-row">
+                    <button class="btn-secondary" id="pauseBroadcastBtn" disabled>إيقاف مؤقت</button>
+                    <button class="btn-danger" id="stopBroadcastBtn">إيقاف البث</button>
+                </div>
+                <div class="remote-status" id="studentControlStatus">التحكم متوقف حتى تسمح به.</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- شاشة المستقبل -->
+    <section class="screen teacher-screen" id="teacherScreen" hidden>
+        <header class="screen-header">
+            <button class="icon-btn" id="backFromTeacherBtn" title="العودة" aria-label="رجوع">←</button>
+            <h2>استقبال البثوث</h2>
+            <div class="screen-tabs" role="tablist">
+                <button id="tabCode" class="screen-tab active" role="tab" aria-selected="true">توليد رمز</button>
+                <button id="tabBroadcasts" class="screen-tab" role="tab" aria-selected="false">البثوث الحالية</button>
+            </div>
+        </header>
+
+        <div class="teacher-pages">
+            <div class="teacher-page" id="codePage">
+                <div class="card" id="codeSettingsCard">
+                    <div class="card-heading">
+                        <span class="step-number">1</span>
+                        <h3>إعدادات الرمز</h3>
+                    </div>
+                    <label class="field-label" for="durationSelect">مدة فعالية الرمز</label>
+                    <select id="durationSelect">
                         <option value="0">بدون مدة (إيقاف يدوي)</option>
                         <option value="5">5 دقائق</option>
                         <option value="10" selected>10 دقائق</option>
                         <option value="15">15 دقيقة</option>
                         <option value="30">30 دقيقة</option>
                     </select>
-                </div>
 
-                <button class="btn-generate" id="generateBtn" disabled>توليد رمز</button>
-                <div class="status-text" id="hostConnectionStatus" role="status">جارٍ الاتصال بخدمة المختبر...</div>
-
-                <div class="generated-box" id="generatedBox">
-                    <div style="font-size:0.8rem; color:#94a3b8;">أعطِ هذا الرمز للطالب لمشاركة شاشته:</div>
-                    <div class="generated-code" id="generatedCode">------</div>
-                    <div class="host-meta">
-                        <span id="hostTimer">مفتوح</span>
-                        <span id="hostStateText">بانتظار الطالب</span>
+                    <label class="field-label">نوع الشبكة</label>
+                    <div class="segmented" id="networkModeSelect" role="group">
+                        <button type="button" data-mode="local" class="active">الشبكة المحلية</button>
+                        <button type="button" data-mode="global">الشبكة العالمية</button>
                     </div>
-                    <button class="btn-danger" id="deleteCodeBtn">حذف الرمز وإيقاف الاستقبال</button>
+                    <div id="globalTeacherFields" hidden>
+                        <label class="field-label" for="globalTeacherUsername">اسم المستخدم</label>
+                        <input id="globalTeacherUsername" class="title-input" type="text" maxlength="32"
+                            placeholder="اسم المستخدم للمشاركين" autocomplete="off" />
+                    </div>
+
+                    <button class="btn-primary full" id="generateBtn" disabled>توليد رمز</button>
+                    <div class="status-text" id="hostStatus" role="status">أنشئ رمزاً لاستقبال البث الحي</div>
                 </div>
-                <div class="card student-roster-card" id="studentRosterCard" hidden>
-                    <h2 class="app-title" style="font-size:1rem;">أجهزة الطلاب</h2>
-                    <div class="student-roster" id="studentRoster"></div>
-                    <div class="status-text" id="emptyRosterStatus">ستظهر هنا بطاقات الطلاب عند إدخال الرمز.</div>
+
+                <div class="card" id="generatedBox" hidden>
+                    <div class="card-heading">
+                        <span class="step-number">2</span>
+                        <h3>رمز الجلسة</h3>
+                    </div>
+                    <div class="code-with-copy">
+                        <div class="generated-code" id="generatedCode">------</div>
+                        <button class="btn-secondary small" id="copyCodeBtn" type="button">نسخ</button>
+                    </div>
+                    <div class="generated-title" id="generatedTitle"></div>
+                    <div class="global-link-box" id="globalLinkBox" hidden>
+                        <span>رابط الجلسة العالمية — أرسله للطالب</span>
+                        <code id="globalLinkText"></code>
+                        <button class="btn-secondary small" id="copyGlobalLinkBtn" type="button">نسخ الرابط</button>
+                    </div>
+                    <div class="meta-row">
+                        <span id="hostTimer">مفتوح</span>
+                        <span id="hostStateText">بانتظار الطلاب</span>
+                    </div>
+                    <button class="btn-secondary full" id="selfShareBtn">مشاركة شاشتي أيضاً</button>
+                    <div class="status-text" id="selfShareStatus"></div>
+                    <button class="btn-danger full" id="deleteCodeBtn">إنهاء صلاحية الرمز</button>
                 </div>
             </div>
 
-            <div class="card remote-controls-card" id="teacherControlsCard">
-                <h2 class="app-title" style="font-size:1.05rem;">التحكم بحاسوب الطالب</h2>
-                <p class="remote-control-note">
-                    لا تعمل الأزرار إلا أثناء بث الشاشة وبعد سماح الطالب. يمكنه إيقاف السماح في أي وقت.
-                </p>
-                <div class="remote-control-status" id="teacherControlStatus">بانتظار موافقة الطالب</div>
-                <div class="direction-pad">
-                    <button class="key-up" data-remote-key="ArrowUp" aria-label="أعلى">↑</button>
-                    <span aria-hidden="true"></span>
-                    <span aria-hidden="true"></span>
-                    <button data-remote-key="ArrowLeft" aria-label="يسار">←</button>
-                    <button data-remote-key="ArrowDown" aria-label="أسفل">↓</button>
-                    <button data-remote-key="ArrowRight" aria-label="يمين">→</button>
-                </div>
-                <div class="remote-key-grid">
-                    <button data-remote-key="Enter">Enter</button>
-                    <button data-remote-key="Space">مسافة</button>
-                    <button data-remote-key="Escape">Esc</button>
-                    <button data-remote-key="Tab">Tab</button>
-                    <button data-remote-key="PageUp">صفحة لأعلى</button>
-                    <button data-remote-key="PageDown">صفحة لأسفل</button>
-                    <button data-remote-key="Home">Home</button>
-                    <button data-remote-key="End">End</button>
+            <div class="teacher-page" id="broadcastsPage" hidden>
+                <div class="broadcasts-layout">
+                    <section class="stage-column">
+                        <div class="video-box" id="videoBox">
+                            <video id="remoteVideo" autoplay playsinline muted></video>
+                            <canvas id="freezeCanvas" class="freeze-canvas"></canvas>
+                            <div class="viewer-title" id="viewerTitle"></div>
+                            <div class="video-controls">
+                                <button class="video-btn" id="receiverPauseBtn" title="إيقاف البث مؤقتاً" aria-label="إيقاف مؤقت">⏸</button>
+                                <button class="video-btn" id="floatBtn" title="جعل البث عائماً" aria-label="تعويم البث">
+                                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="3" y="4" width="18" height="16" rx="2" />
+                                        <rect x="12" y="12" width="7" height="6" rx="1" fill="currentColor" />
+                                    </svg>
+                                </button>
+                                <button class="video-btn" id="fullscreenBtn" title="تكبير البث" aria-label="تكبير">
+                                    <svg id="expandIcon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2.2">
+                                        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                                    </svg>
+                                    <svg id="compressIcon" width="17" height="17" viewBox="0 0 24 24" fill="none"
+                                        stroke="currentColor" stroke-width="2.2" hidden>
+                                        <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="video-placeholder" id="videoPlaceholder">
+                            <div class="placeholder-icon" aria-hidden="true">▣</div>
+                            <p>اختر بثاً من القائمة لعرضه هنا</p>
+                        </div>
+                    </section>
+
+                    <aside class="roster-column">
+                        <div class="card roster-card" id="rosterCard" hidden>
+                            <div class="roster-heading">
+                                <h3>البثوث الحالية</h3>
+                                <button class="btn-ghost small" id="rosterViewBtn" type="button">عرض شبكي</button>
+                            </div>
+                            <div class="student-roster" id="studentRoster"></div>
+                            <div class="status-text" id="emptyRoster">ستظهر هنا بطاقات الطلاب عند إدخال الرمز.</div>
+                        </div>
+
+                        <div class="card" id="teacherControlsCard" hidden>
+                            <div class="card-heading">
+                                <span class="step-number">⌨</span>
+                                <h3>التحكم بحاسوب الطالب</h3>
+                            </div>
+                            <p class="hint">للطالب المحدد وبعد سماحه فقط.</p>
+                            <div class="remote-status" id="teacherControlStatus">بانتظار بث الشاشة</div>
+                            <div class="direction-pad" aria-label="مفاتيح الاتجاه">
+                                <button class="key-up" data-remote-key="ArrowUp" aria-label="أعلى">↑</button>
+                                <span aria-hidden="true"></span>
+                                <span aria-hidden="true"></span>
+                                <button data-remote-key="ArrowLeft" aria-label="يسار">←</button>
+                                <button data-remote-key="ArrowDown" aria-label="أسفل">↓</button>
+                                <button data-remote-key="ArrowRight" aria-label="يمين">→</button>
+                            </div>
+                            <div class="remote-key-grid">
+                                <button data-remote-key="Enter" aria-label="إدخال">إدخال</button>
+                                <button data-remote-key="Space" aria-label="مسافة">مسافة</button>
+                                <button data-remote-key="Escape" aria-label="خروج">خروج</button>
+                                <button data-remote-key="Tab" aria-label="جدولة">جدولة</button>
+                                <button data-remote-key="PageUp" aria-label="صفحة لأعلى">صفحة لأعلى</button>
+                                <button data-remote-key="PageDown" aria-label="صفحة لأسفل">صفحة لأسفل</button>
+                                <button data-remote-key="Home" aria-label="بداية">بداية</button>
+                                <button data-remote-key="End" aria-label="نهاية">نهاية</button>
+                            </div>
+                        </div>
+                    </aside>
                 </div>
             </div>
-            </section>
         </div>
-    </div>
-
-    <div class="viewer-column">
-        <div class="video-box" id="videoBox">
-            <video id="remoteVideo" autoplay playsinline muted></video>
-            <canvas id="freezeCanvas" class="freeze-canvas"></canvas>
-
-            <div class="corner-controls">
-                <button class="corner-btn float-btn" id="floatBtn" title="تصغير إلى نافذة عائمة">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="3" y="4" width="18" height="16" rx="2" />
-                        <rect x="12" y="12" width="7" height="6" rx="1" fill="currentColor" />
-                    </svg>
-                </button>
-
-                <button class="corner-btn" id="fsToggleBtn" title="تكبير / تصغير الشاشة">
-                    <svg id="fsIconExpand" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        stroke-width="2.2">
-                        <path
-                            d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
-                    </svg>
-                    <svg id="fsIconCompress" width="22" height="22" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" stroke-width="2.2" style="display:none;">
-                        <path
-                            d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
-                    </svg>
-                </button>
-            </div>
-        </div>
-    </div>
+    </section>
 
     <script src="../node_modules/socket.io-client/dist/socket.io.min.js"></script>
-    <script>
-        const startScreen = document.getElementById('startScreen');
-        const workspace = document.getElementById('workspace');
-        const startStudentModeBtn = document.getElementById('startStudentModeBtn');
-        const startTeacherModeBtn = document.getElementById('startTeacherModeBtn');
-        const codeInput = document.getElementById('codeInput');
-        const okBtn = document.getElementById('okBtn');
-        const cancelBtn = document.getElementById('cancelBtn');
-        const homeButton = document.getElementById('homeButton');
-        const outgoingStatus = document.getElementById('outgoingStatus');
-        const studentIdentity = document.getElementById('studentIdentity');
-        const studentRoleBtn = document.getElementById('studentRoleBtn');
-        const teacherRoleBtn = document.getElementById('teacherRoleBtn');
-        const studentPanel = document.getElementById('studentPanel');
-        const teacherPanel = document.getElementById('teacherPanel');
-        const studentPermissionCard = document.getElementById('studentPermissionCard');
-        const studentControlToggle = document.getElementById('studentControlToggle');
-        const studentControlStatus = document.getElementById('studentControlStatus');
-
-        const durationSelect = document.getElementById('durationSelect');
-        const generateBtn = document.getElementById('generateBtn');
-        const hostConnectionStatus = document.getElementById('hostConnectionStatus');
-        const generatedBox = document.getElementById('generatedBox');
-        const generatedCode = document.getElementById('generatedCode');
-        const hostTimer = document.getElementById('hostTimer');
-        const hostStateText = document.getElementById('hostStateText');
-        const deleteCodeBtn = document.getElementById('deleteCodeBtn');
-        const studentRosterCard = document.getElementById('studentRosterCard');
-        const studentRoster = document.getElementById('studentRoster');
-        const emptyRosterStatus = document.getElementById('emptyRosterStatus');
-
-        const videoBox = document.getElementById('videoBox');
-        const remoteVideo = document.getElementById('remoteVideo');
-        const freezeCanvas = document.getElementById('freezeCanvas');
-        const floatBtn = document.getElementById('floatBtn');
-        const fsToggleBtn = document.getElementById('fsToggleBtn');
-        const fsIconExpand = document.getElementById('fsIconExpand');
-        const fsIconCompress = document.getElementById('fsIconCompress');
-        const teacherControlsCard = document.getElementById('teacherControlsCard');
-        const teacherControlStatus = document.getElementById('teacherControlStatus');
-        const remoteControlButtons = document.querySelectorAll('[data-remote-key]');
-
-        let outSocket = null;
-        let outStream = null;
-        let outPC = null;
-        let outPendingCandidates = [];
-        let joinedStudentId = null;
-        let outgoingViewRequestId = 0;
-        let isSharingOutgoing = false;
-        let isPausedOutgoing = false;
-        let isTeacherMode = false;
-        let isStudentControlEnabled = false;
-        let isControlPermissionRequest = false;
-        let controlPermissionRequestId = 0;
-        let inSocket = null;
-        let inPC = null;
-        let inPendingCandidates = [];
-        let hostCountdownTimer = null;
-        let isReceivingIncoming = false;
-        let isIncomingPaused = false;
-        let isTeacherControlEnabled = false;
-        let selectedStudentId = null;
-        let incomingStudentId = null;
-        let hostStudents = [];
-        let isFullscreen = false;
-        let hideControlsTimer = null;
-        let floatingWin = null;
-        const hasElectronBridge = Boolean(
-            window.electronAPI && typeof window.electronAPI.getHostInfo === 'function'
-        );
-
-        function setOutgoingStatus(msg, type = '') {
-            outgoingStatus.textContent = msg;
-            outgoingStatus.className = `status-text ${type}`;
-        }
-
-        function syncTrayOutgoingState() {
-            window.electronAPI.setOutgoingState({
-                sharing: isSharingOutgoing,
-                paused: isPausedOutgoing
-            });
-        }
-
-        function setRoleMode(mode) {
-            isTeacherMode = mode === 'teacher';
-            studentRoleBtn.classList.toggle('active', !isTeacherMode);
-            studentRoleBtn.setAttribute('aria-selected', String(!isTeacherMode));
-            teacherRoleBtn.classList.toggle('active', isTeacherMode);
-            teacherRoleBtn.setAttribute('aria-selected', String(isTeacherMode));
-            studentPanel.hidden = isTeacherMode;
-            studentPanel.classList.toggle('active', !isTeacherMode);
-            teacherPanel.hidden = !isTeacherMode;
-            teacherPanel.classList.toggle('active', isTeacherMode);
-            if (hasElectronBridge && isReceivingIncoming) {
-                window.electronAPI.setWindowSizeMode(isTeacherMode ? 'viewer' : 'compact');
-                if (isTeacherMode) {
-                    window.electronAPI.showWindow();
-                }
-            }
-            updateTeacherControlUi();
-        }
-
-        function openWorkspace(mode) {
-            startScreen.hidden = true;
-            workspace.hidden = false;
-            setRoleMode(mode);
-        }
-
-        startStudentModeBtn.addEventListener('click', () => openWorkspace('student'));
-        startTeacherModeBtn.addEventListener('click', () => openWorkspace('teacher'));
-        homeButton.addEventListener('click', () => {
-            workspace.hidden = true;
-            startScreen.hidden = false;
-            document.body.classList.remove('viewer-active');
-            if (hasElectronBridge) {
-                window.electronAPI.setWindowSizeMode('compact');
-            }
-        });
-
-        function updateStudentControlUi(message) {
-            studentPermissionCard.hidden = !isSharingOutgoing;
-            studentControlToggle.disabled =
-                !isSharingOutgoing || isPausedOutgoing || isControlPermissionRequest;
-            studentControlToggle.classList.toggle('enabled', isStudentControlEnabled);
-            studentControlToggle.setAttribute('aria-checked', String(isStudentControlEnabled));
-            studentControlToggle.textContent = isStudentControlEnabled
-                ? 'إيقاف سماح التحكم بالمفاتيح'
-                : 'السماح بالتحكم بالمفاتيح';
-
-            if (message) {
-                studentControlStatus.textContent = message;
-            } else if (isStudentControlEnabled) {
-                studentControlStatus.textContent = 'السماح مفعّل. اضغط الزر لإيقافه فوراً.';
-            } else if (isPausedOutgoing) {
-                studentControlStatus.textContent = 'أوقف البث مؤقتاً؛ أعد استئنافه.';
-            } else if (isSharingOutgoing) {
-                studentControlStatus.textContent = 'التحكم متوقف حتى تسمح به.';
-            } else {
-                studentControlStatus.textContent = 'التحكم متوقف. فعّله بعد بدء البث.';
-            }
-        }
-
-        function updateTeacherControlUi() {
-            teacherControlsCard.classList.toggle('active', isTeacherMode && isReceivingIncoming);
-            document.body.classList.toggle('viewer-active', isTeacherMode && isReceivingIncoming);
-            const canSendKeys =
-                isTeacherMode && isReceivingIncoming && isTeacherControlEnabled && !isIncomingPaused;
-            remoteControlButtons.forEach((button) => {
-                button.disabled = !canSendKeys;
-            });
-
-            if (!isTeacherMode || !isReceivingIncoming) {
-                teacherControlStatus.textContent = 'بانتظار بث الشاشة';
-            } else if (isIncomingPaused) {
-                teacherControlStatus.textContent = 'البث متوقف مؤقتاً؛ التحكم متوقف';
-            } else if (isTeacherControlEnabled) {
-                teacherControlStatus.textContent = 'الطالب سمح بالتحكم';
-            } else {
-                teacherControlStatus.textContent = 'بانتظار الموافقة';
-            }
-        }
-
-        function setLocalStudentControlEnabled(enabled, message) {
-            isStudentControlEnabled = Boolean(enabled);
-            if (!isStudentControlEnabled) {
-                controlPermissionRequestId += 1;
-                isControlPermissionRequest = false;
-            }
-            window.electronAPI.setStudentControlEnabled(isStudentControlEnabled);
-            updateStudentControlUi(message);
-        }
-
-        studentRoleBtn.addEventListener('click', () => setRoleMode('student'));
-        teacherRoleBtn.addEventListener('click', () => setRoleMode('teacher'));
-
-        function setStudentControlEnabled(enabled) {
-            if (!enabled) {
-                if (outSocket && outSocket.connected) {
-                    outSocket.emit('sender-control-permission', { enabled: false });
-                }
-                setLocalStudentControlEnabled(false, 'تم إيقاف السماح بالتحكم.');
-                return;
-            }
-
-            if (isStudentControlEnabled || isControlPermissionRequest) return;
-            if (!isSharingOutgoing || isPausedOutgoing || !outSocket || !outSocket.connected) {
-                updateStudentControlUi('ابدأ بث الشاشة أولاً قبل تفعيل التحكم.');
-                return;
-            }
-
-            const requestId = ++controlPermissionRequestId;
-            isControlPermissionRequest = true;
-            updateStudentControlUi('جارٍ تفعيل السماح...');
-            outSocket.timeout(3000).emit(
-                'sender-control-permission',
-                { enabled: true },
-                (error, response) => {
-                    if (requestId !== controlPermissionRequestId) return;
-                    isControlPermissionRequest = false;
-                    if (error || !response || !response.ok) {
-                        setLocalStudentControlEnabled(
-                            false,
-                            (response && response.message) || 'تعذر تفعيل السماح؛ تحقق من اتصال الشبكة.'
-                        );
-                        return;
-                    }
-                    setLocalStudentControlEnabled(true, 'السماح مفعّل. اضغط الزر لإيقافه فوراً.');
-                }
-            );
-        }
-
-        function stopOutgoingViewing(studentId) {
-            if (studentId && joinedStudentId !== studentId) return;
-            outgoingViewRequestId += 1;
-            if (outPC) {
-                outPC.close();
-                outPC = null;
-            }
-            outPendingCandidates = [];
-        }
-
-        async function startOutgoingViewing(studentId) {
-            if (
-                studentId !== joinedStudentId ||
-                !isSharingOutgoing ||
-                isPausedOutgoing ||
-                !outStream ||
-                !outSocket
-            ) return;
-
-            stopOutgoingViewing();
-            const requestId = outgoingViewRequestId;
-            const socket = outSocket;
-            const peerConnection = new RTCPeerConnection({ iceServers: [] });
-            outPC = peerConnection;
-            outStream.getTracks().forEach((track) => peerConnection.addTrack(track, outStream));
-            peerConnection.onicecandidate = (event) => {
-                if (
-                    event.candidate &&
-                    outPC === peerConnection &&
-                    outSocket === socket &&
-                    joinedStudentId === studentId
-                ) {
-                    socket.emit('webrtc-ice-candidate', {
-                        candidate: event.candidate,
-                        target: 'host',
-                        studentId
-                    });
-                }
-            };
-
-            const offer = await peerConnection.createOffer();
-            await peerConnection.setLocalDescription(offer);
-            if (
-                requestId !== outgoingViewRequestId ||
-                outPC !== peerConnection ||
-                outSocket !== socket
-            ) {
-                peerConnection.close();
-                return;
-            }
-            socket.emit('webrtc-offer', { offer, studentId });
-        }
-
-        function stopOutgoingShare(notifyRemote = true) {
-            if (outSocket && outSocket.connected) {
-                if (isStudentControlEnabled) {
-                    outSocket.emit('sender-control-permission', { enabled: false });
-                }
-                if (notifyRemote && isSharingOutgoing) {
-                    outSocket.emit('sender-stop-sharing');
-                }
-            }
-            if (outStream) {
-                outStream.getTracks().forEach((t) => t.stop());
-                outStream = null;
-            }
-            stopOutgoingViewing();
-            if (outSocket) {
-                outSocket.disconnect();
-                outSocket = null;
-            }
-            outPendingCandidates = [];
-            isSharingOutgoing = false;
-            isPausedOutgoing = false;
-            isControlPermissionRequest = false;
-            joinedStudentId = null;
-            studentIdentity.hidden = true;
-            okBtn.disabled = false;
-            okBtn.textContent = 'مشاركة الشاشة';
-            setLocalStudentControlEnabled(false);
-            syncTrayOutgoingState();
-        }
-
-        studentControlToggle.addEventListener('click', () => {
-            setStudentControlEnabled(!isStudentControlEnabled);
-        });
-
-        if (hasElectronBridge) {
-            window.electronAPI.onTrayStopBroadcast(() => {
-                stopOutgoingShare(true);
-                codeInput.value = '';
-                setOutgoingStatus('تم إيقاف البث.', '');
-            });
-
-            window.electronAPI.onTrayTogglePause(() => {
-                if (!isSharingOutgoing || !outStream || !outSocket) return;
-                const track = outStream.getVideoTracks()[0];
-                if (!track) return;
-
-                if (!isPausedOutgoing) {
-                    setStudentControlEnabled(false);
-                }
-                isPausedOutgoing = !isPausedOutgoing;
-                track.enabled = !isPausedOutgoing;
-
-                if (isPausedOutgoing) {
-                    outSocket.emit('sender-pause-sharing');
-                    setOutgoingStatus('البث متوقف مؤقتاً', '');
-                } else {
-                    outSocket.emit('sender-resume-sharing');
-                    setOutgoingStatus('جاري بث شاشتك الآن', 'ok');
-                }
-                updateStudentControlUi();
-                syncTrayOutgoingState();
-            });
-
-            window.electronAPI.onTrayToggleStudentControl(() => {
-                setStudentControlEnabled(!isStudentControlEnabled);
-            });
-        }
-
-        cancelBtn.addEventListener('click', () => {
-            if (isSharingOutgoing) {
-                stopOutgoingShare(true);
-                setOutgoingStatus('تم إيقاف مشاركة الشاشة.', '');
-            }
-            codeInput.value = '';
-            codeInput.focus();
-            if (!isSharingOutgoing) {
-                setOutgoingStatus('أدخل رمز الأستاذ لبدء مشاركة شاشتك', '');
-            }
-        });
-
-        okBtn.addEventListener('click', async () => {
-            if (isSharingOutgoing) {
-                stopOutgoingShare(true);
-                codeInput.value = '';
-                setOutgoingStatus('تم إيقاف مشاركة الشاشة.', '');
-                return;
-            }
-
-            if (!hasElectronBridge) {
-                return setOutgoingStatus(
-                    'شغّل تطبيق Lab show المكتبي؛ فتح ملف HTML في المتصفح لا يدعم مشاركة الشاشة.',
-                    'err'
-                );
-            }
-
-            const code = codeInput.value.trim();
-            if (!code) {
-                return setOutgoingStatus('أدخل رمز الأستاذ أولاً.', 'err');
-            }
-
-            okBtn.disabled = true;
-            setOutgoingStatus('جاري البحث عن صاحب الرمز...', '');
-            let target;
-            try {
-                target = await window.electronAPI.findHostByCode(code);
-            } catch (err) {
-                console.error('Host discovery failed:', err);
-                okBtn.disabled = false;
-                setOutgoingStatus('تعذر البحث عن الأستاذ؛ تحقق من الشبكة وحاول مجدداً.', 'err');
-                return;
-            }
-
-            if (!target) {
-                okBtn.disabled = false;
-                return setOutgoingStatus('لم يُعثر على رمز الأستاذ في الشبكة المحلية.', 'err');
-            }
-
-            stopOutgoingShare(true);
-            okBtn.disabled = true;
-            outSocket = io(`http://${target.ip}:${target.port}`);
-            const joiningSocket = outSocket;
-            outSocket.on('connect', () => {
-                outSocket.timeout(5000).emit('sender-join-code', { code }, async (error, res) => {
-                    if (error || !res || !res.ok) {
-                        stopOutgoingShare(false);
-                        return setOutgoingStatus(
-                            (res && res.message) || 'تعذر الانضمام إلى جلسة الأستاذ.',
-                            'err'
-                        );
-                    }
-
-                    try {
-                        outStream = await navigator.mediaDevices.getDisplayMedia({
-                            video: {
-                                frameRate: { ideal: 30, max: 30 },
-                                width: { max: 1920 },
-                                height: { max: 1080 }
-                            },
-                            audio: false
-                        });
-
-                        if (outSocket !== joiningSocket) {
-                            outStream.getTracks().forEach((track) => track.stop());
-                            return;
-                        }
-                        joinedStudentId = res.studentId;
-                        studentIdentity.textContent = `معرّف هذا الجهاز: ${joinedStudentId}`;
-                        studentIdentity.hidden = false;
-                        outSocket.emit('sender-start-sharing');
-
-                        isSharingOutgoing = true;
-                        isPausedOutgoing = false;
-                        okBtn.disabled = false;
-                        okBtn.textContent = 'إيقاف مشاركة الشاشة';
-                        updateStudentControlUi();
-                        syncTrayOutgoingState();
-                        setOutgoingStatus('بدأت مشاركة الشاشة. سيظهر البث عند اختيارك من الأستاذ.', 'ok');
-
-                        outStream.getVideoTracks().forEach((track) => {
-                            track.addEventListener('ended', () => {
-                                if (outSocket === joiningSocket && isSharingOutgoing) {
-                                    stopOutgoingShare(true);
-                                    setOutgoingStatus('تم إيقاف مشاركة الشاشة.', '');
-                                }
-                            }, { once: true });
-                        });
-
-                        if (!isReceivingIncoming && !floatingWin) {
-                            setTimeout(() => {
-                                window.electronAPI.hideToBackground();
-                            }, 350);
-                        }
-                    } catch (err) {
-                        console.error(err);
-                        stopOutgoingShare(true);
-                        setOutgoingStatus('تعذر التقاط الشاشة.', 'err');
-                    }
-                });
-            });
-
-            outSocket.on('connect_error', (err) => {
-                if (outSocket !== joiningSocket) return;
-                console.error('Student connection failed:', err);
-                stopOutgoingShare(false);
-                setOutgoingStatus('تعذر الاتصال بجهاز الأستاذ داخل الشبكة.', 'err');
-            });
-
-            outSocket.on('student-start-viewing', ({ studentId }) => {
-                startOutgoingViewing(studentId).catch((err) => {
-                    console.error('Unable to start student video stream:', err);
-                    setOutgoingStatus('تعذر إعداد بث الشاشة للأستاذ.', 'err');
-                });
-            });
-
-            outSocket.on('student-stop-viewing', ({ studentId }) => {
-                stopOutgoingViewing(studentId);
-            });
-
-            outSocket.on('webrtc-answer', async ({ studentId, answer }) => {
-                try {
-                    if (!outPC || studentId !== joinedStudentId) return;
-                    await outPC.setRemoteDescription(new RTCSessionDescription(answer));
-                    for (const cand of outPendingCandidates) {
-                        await outPC.addIceCandidate(new RTCIceCandidate(cand));
-                    }
-                    outPendingCandidates = [];
-                } catch (err) {
-                    console.error(err);
-                }
-            });
-
-            outSocket.on('webrtc-ice-candidate', async ({ studentId, candidate }) => {
-                if (studentId !== joinedStudentId) return;
-                try {
-                    if (outPC && outPC.remoteDescription) {
-                        await outPC.addIceCandidate(new RTCIceCandidate(candidate));
-                    } else {
-                        outPendingCandidates.push(candidate);
-                    }
-                } catch (err) {
-                    console.error(err);
-                }
-            });
-
-            outSocket.on('student-control-key', async ({ studentId, key }) => {
-                if (studentId !== joinedStudentId) return;
-                if (!isStudentControlEnabled || !isSharingOutgoing || isPausedOutgoing) return;
-                try {
-                    const result = await window.electronAPI.applyStudentControlKey(key);
-                    if (!result.ok) {
-                        updateStudentControlUi(result.message || 'تعذر تنفيذ مفتاح التحكم.');
-                    }
-                } catch (err) {
-                    console.error('Remote key control failed:', err);
-                    updateStudentControlUi('تعذر تنفيذ مفتاح التحكم على هذا الجهاز.');
-                }
-            });
-
-            outSocket.on('student-control-permission-changed', ({ enabled }) => {
-                if (!enabled && isStudentControlEnabled) {
-                    setLocalStudentControlEnabled(false, 'تم سحب السماح بالتحكم.');
-                }
-            });
-
-            outSocket.on('session-terminated', ({ message }) => {
-                stopOutgoingShare(false);
-                codeInput.value = '';
-                setOutgoingStatus(message || 'تم إيقاف الجلسة.', 'err');
-            });
-
-            outSocket.on('disconnect', () => {
-                if (outSocket !== joiningSocket) return;
-                if (isSharingOutgoing || okBtn.disabled) {
-                    stopOutgoingShare(false);
-                    setOutgoingStatus('انقطع الاتصال بجهاز الأستاذ.', 'err');
-                }
-            });
-        });
-
-        codeInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') okBtn.click();
-            if (e.key === 'Escape') cancelBtn.click();
-        });
-
-        function captureFrozenFrameToCanvas(videoEl, canvasEl) {
-            if (!videoEl || !canvasEl || !videoEl.videoWidth || !videoEl.videoHeight) return;
-            canvasEl.width = videoEl.videoWidth;
-            canvasEl.height = videoEl.videoHeight;
-            const ctx = canvasEl.getContext('2d');
-            ctx.drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height);
-        }
-
-        function applyIncomingFreeze(paused, studentId) {
-            if (studentId && studentId !== selectedStudentId) return;
-            isIncomingPaused = paused;
-            updateTeacherControlUi();
-
-            if (paused) {
-                const sourceVideo =
-                    floatingWin && !floatingWin.closed
-                        ? floatingWin.document.getElementById('pipVideo')
-                        : remoteVideo;
-                captureFrozenFrameToCanvas(sourceVideo || remoteVideo, freezeCanvas);
-                freezeCanvas.classList.add('active');
-
-                if (floatingWin && !floatingWin.closed) {
-                    const pipVideo = floatingWin.document.getElementById('pipVideo');
-                    const pipCanvas = floatingWin.document.getElementById('pipFreezeCanvas');
-                    if (pipVideo && pipCanvas) {
-                        captureFrozenFrameToCanvas(pipVideo, pipCanvas);
-                        pipCanvas.style.display = 'block';
-                    }
-                }
-            } else {
-                freezeCanvas.classList.remove('active');
-                if (floatingWin && !floatingWin.closed) {
-                    const pipCanvas = floatingWin.document.getElementById('pipFreezeCanvas');
-                    if (pipCanvas) pipCanvas.style.display = 'none';
-                }
-            }
-        }
-
-        function closeFloatingWindow(restoreMain = true) {
-            if (floatingWin && !floatingWin.closed) {
-                const winRef = floatingWin;
-                floatingWin = null;
-                winRef.onbeforeunload = null;
-                winRef.close();
-            }
-            if (restoreMain && isReceivingIncoming) {
-                window.electronAPI.showWindow();
-            }
-        }
-
-        function openFloatingWindow() {
-            if (!isReceivingIncoming || !remoteVideo.srcObject) return;
-            if (isFullscreen) setFullscreenState(false);
-
-            if (floatingWin && !floatingWin.closed) {
-                floatingWin.focus();
-                return;
-            }
-
-            floatingWin = window.open('', 'FloatingPlayer');
-            if (!floatingWin) return;
-
-            const doc = floatingWin.document;
-            doc.open();
-            doc.write(`
-                <!DOCTYPE html>
-                <html lang="ar" dir="rtl">
-                    <head>
-                        <meta charset="UTF-8" />
-                        <title>Lab show</title>
-                        <style>
-                            * { box-sizing: border-box; margin: 0; padding: 0; }
-                            body {
-                                width: 100vw;
-                                height: 100vh;
-                                overflow: hidden;
-                                position: relative;
-                                background: #000;
-                                -webkit-app-region: drag;
-                                user-select: none;
-                            }
-                            video, canvas {
-                                width: 100%;
-                                height: 100%;
-                                object-fit: contain;
-                                display: block;
-                            }
-                            canvas {
-                                position: absolute;
-                                inset: 0;
-                                display: none;
-                                background: #000;
-                                z-index: 4;
-                            }
-                            .pip-controls {
-                                position: absolute;
-                                top: 8px;
-                                left: 8px;
-                                display: flex;
-                                gap: 6px;
-                                opacity: 0;
-                                transition: opacity 0.2s;
-                                z-index: 10;
-                                -webkit-app-region: no-drag;
-                            }
-                            body:hover .pip-controls { opacity: 1; }
-                            button {
-                                border: 1px solid rgba(255,255,255,0.28);
-                                background: rgba(15, 23, 42, 0.85);
-                                color: #fff;
-                                border-radius: 7px;
-                                padding: 5px 9px;
-                                font-size: 12px;
-                                font-family: system-ui, "Segoe UI", Tahoma, sans-serif;
-                                cursor: pointer;
-                            }
-                            button:hover { background: rgba(2, 132, 199, 0.95); }
-                            button.close-btn:hover { background: rgba(220, 38, 38, 0.95); }
-                        </style>
-                    </head>
-                    <body>
-                        <video id="pipVideo" autoplay playsinline muted></video>
-                        <canvas id="pipFreezeCanvas"></canvas>
-                        <div class="pip-controls">
-                            <button id="restoreBtn" title="العودة للنافذة">توسيع</button>
-                            <button id="closePipBtn" class="close-btn" title="إغلاق النافذة العائمة">✕</button>
-                        </div>
-                    </body>
-                </html>
-            `);
-            doc.close();
-
-            const pipVideo = doc.getElementById('pipVideo');
-            const pipCanvas = doc.getElementById('pipFreezeCanvas');
-            pipVideo.srcObject = remoteVideo.srcObject;
-
-            if (isIncomingPaused) {
-                captureFrozenFrameToCanvas(remoteVideo, pipCanvas);
-                pipCanvas.style.display = 'block';
-            }
-            doc.getElementById('restoreBtn').addEventListener('click', () => {
-                closeFloatingWindow(true);
-            });
-            doc.getElementById('closePipBtn').addEventListener('click', () => {
-                closeFloatingWindow(true);
-            });
-            floatingWin.onbeforeunload = () => {
-                floatingWin = null;
-                if (isReceivingIncoming) {
-                    window.electronAPI.showWindow();
-                }
-            };
-            window.electronAPI.hideToBackground();
-        }
-        floatBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            openFloatingWindow();
-        });
-        function setFullscreenState(enable) {
-            isFullscreen = enable;
-            if (hasElectronBridge) {
-                window.electronAPI.setFullScreen(enable);
-            }
-            if (enable) {
-                videoBox.classList.add('is-fullscreen', 'show-controls');
-                fsIconExpand.style.display = 'none';
-                fsIconCompress.style.display = 'block';
-                scheduleHideControls();
-            } else {
-                videoBox.classList.remove('is-fullscreen', 'show-controls');
-                fsIconExpand.style.display = 'block';
-                fsIconCompress.style.display = 'none';
-                if (hideControlsTimer) clearTimeout(hideControlsTimer);
-            }
-        }
-        function scheduleHideControls() {
-            if (hideControlsTimer) clearTimeout(hideControlsTimer);
-            if (!isFullscreen) return;
-            hideControlsTimer = setTimeout(() => {
-                videoBox.classList.remove('show-controls');
-            }, 2200);
-        }
-        videoBox.addEventListener('mousemove', () => {
-            if (!isFullscreen) return;
-            videoBox.classList.add('show-controls');
-            scheduleHideControls();
-        });
-        fsToggleBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            setFullscreenState(!isFullscreen);
-        });
-        remoteVideo.addEventListener('dblclick', () => {
-            setFullscreenState(!isFullscreen);
-        });
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && isFullscreen) {
-                setFullscreenState(false);
-            }
-        });
-        function clearIncomingViewer(studentId) {
-            if (studentId && incomingStudentId && studentId !== incomingStudentId) return;
-            if (isFullscreen) {
-                setFullscreenState(false);
-            }
-            isIncomingPaused = false;
-            isReceivingIncoming = false;
-            isTeacherControlEnabled = false;
-            freezeCanvas.classList.remove('active');
-            closeFloatingWindow(false);
-            if (inPC) {
-                inPC.close();
-                inPC = null;
-            }
-            inPendingCandidates = [];
-            remoteVideo.srcObject = null;
-            incomingStudentId = null;
-            document.body.classList.remove('viewer-active');
-            window.electronAPI.setWindowSizeMode('compact');
-            updateTeacherControlUi();
-        }
-        function updateHostTimer(expiresAt) {
-            if (hostCountdownTimer) clearInterval(hostCountdownTimer);
-            if (!expiresAt) {
-                hostTimer.textContent = 'بدون مدة';
-                return;
-            }
-            const tick = () => {
-                const diff = expiresAt - Date.now();
-                if (diff <= 0) {
-                    hostTimer.textContent = '00:00';
-                    clearInterval(hostCountdownTimer);
-                    return;
-                }
-                const total = Math.ceil(diff / 1000);
-                const mins = Math.floor(total / 60).toString().padStart(2, '0');
-                const secs = (total % 60).toString().padStart(2, '0');
-                hostTimer.textContent = `${mins}:${secs}`;
-            };
-            tick();
-            hostCountdownTimer = setInterval(tick, 1000);
-        }
-        function renderStudentRoster(students) {
-            studentRoster.replaceChildren();
-            emptyRosterStatus.hidden = students.length > 0;
-            students.forEach((student) => {
-                const card = document.createElement('button');
-                card.type = 'button';
-                card.className = 'student-card';
-                card.dataset.studentId = student.id;
-                card.disabled = !student.isSharing || student.isPaused;
-                card.classList.toggle('selected', student.id === selectedStudentId);
-
-                const id = document.createElement('strong');
-                id.textContent = `الطالب ${student.id}`;
-                const status = document.createElement('span');
-                status.textContent = student.isPaused
-                    ? 'متوقف مؤقتاً'
-                    : student.isSharing
-                        ? (student.id === selectedStudentId ? 'البث محدد للعرض' : 'البث متاح')
-                        : 'متصل - بانتظار بدء المشاركة';
-                card.append(id, status);
-                card.addEventListener('click', () => {
-                    if (!inSocket || !inSocket.connected) return;
-                    inSocket.timeout(3000).emit(
-                        'host-select-student',
-                        { studentId: student.id },
-                        (error, response) => {
-                            if (error || !response || !response.ok) {
-                                hostConnectionStatus.textContent =
-                                    (response && response.message) || 'تعذر فتح بث الطالب.';
-                                hostConnectionStatus.className = 'status-text err';
-                            }
-                        }
-                    );
-                });
-                studentRoster.append(card);
-            });
-        }
-
-        function renderHostSession(session) {
-            if (!session) {
-                isTeacherControlEnabled = false;
-                selectedStudentId = null;
-                hostStudents = [];
-                studentRosterCard.hidden = true;
-                renderStudentRoster(hostStudents);
-                generatedBox.classList.remove('active');
-                if (hostCountdownTimer) clearInterval(hostCountdownTimer);
-                clearIncomingViewer();
-                return;
-            }
-            const nextSelectedStudentId = session.selectedStudentId || null;
-            if (incomingStudentId && incomingStudentId !== nextSelectedStudentId) {
-                clearIncomingViewer(incomingStudentId);
-            }
-            selectedStudentId = nextSelectedStudentId;
-            hostStudents = session.students || [];
-            studentRosterCard.hidden = false;
-            renderStudentRoster(hostStudents);
-            const selectedStudent = hostStudents.find((student) => student.id === selectedStudentId);
-            isTeacherControlEnabled = Boolean(selectedStudent && selectedStudent.controlEnabled);
-            generatedBox.classList.add('active');
-            generatedCode.textContent = session.code;
-            updateHostTimer(session.expiresAt);
-            if (selectedStudent && selectedStudent.isPaused) {
-                hostStateText.textContent = 'متوقف مؤقتاً (صورة مجمدة)';
-                applyIncomingFreeze(true, selectedStudent.id);
-            } else if (selectedStudent && selectedStudent.isSharing) {
-                hostStateText.textContent = 'يبث الآن';
-                if (isIncomingPaused) applyIncomingFreeze(false, selectedStudent.id);
-            } else if (hostStudents.length) {
-                hostStateText.textContent = 'متصلون - اختر طالباً';
-            } else {
-                hostStateText.textContent = 'بانتظار الطرف الآخر';
-            }
-            updateTeacherControlUi();
-        }
-        generateBtn.addEventListener('click', () => {
-            if (!inSocket) {
-                hostConnectionStatus.textContent = 'تعذر الاتصال بخدمة الاستقبال على هذا الحاسوب.';
-                hostConnectionStatus.className = 'status-text err';
-                return;
-            }
-
-            generateBtn.disabled = true;
-            generateBtn.textContent = 'جارٍ التحقق وتوليد الرمز...';
-            hostConnectionStatus.textContent = 'جارٍ التحقق من الرمز على الشبكة المحلية...';
-            hostConnectionStatus.className = 'status-text';
-            const durationMinutes = Number(durationSelect.value);
-            inSocket.timeout(10000).emit(
-                'host-create-code',
-                { durationMinutes },
-                (error, response) => {
-                    if (error || !response || !response.ok) {
-                        hostConnectionStatus.textContent =
-                            (response && response.message) || 'تعذر توليد الرمز؛ تحقق من اتصال التطبيق.';
-                        hostConnectionStatus.className = 'status-text err';
-                    } else {
-                        hostConnectionStatus.textContent = 'تم إنشاء الرمز؛ أدخله على حاسوب الطالب.';
-                        hostConnectionStatus.className = 'status-text ok';
-                    }
-                    generateBtn.disabled = !inSocket;
-                    generateBtn.textContent = 'توليد رمز';
-                }
-            );
-        });
-
-        deleteCodeBtn.addEventListener('click', () => {
-            if (!inSocket || !inSocket.connected) {
-                hostConnectionStatus.textContent = 'انقطع الاتصال بخدمة الاستقبال.';
-                hostConnectionStatus.className = 'status-text err';
-                return;
-            }
-            inSocket.emit('host-delete-code');
-            clearIncomingViewer();
-        });
-
-        function getHostInfoWithTimeout(timeoutMs) {
-            return new Promise((resolve, reject) => {
-                if (!hasElectronBridge) {
-                    reject(new Error('Lab show must be run as an Electron desktop application.'));
-                    return;
-                }
-                const timeout = setTimeout(
-                    () => reject(new Error('Timed out retrieving the local host service address.')),
-                    timeoutMs
-                );
-                window.electronAPI.getHostInfo().then(
-                    (info) => {
-                        clearTimeout(timeout);
-                        resolve(info);
-                    },
-                    (error) => {
-                        clearTimeout(timeout);
-                        reject(error);
-                    }
-                );
-            });
-        }
-
-        getHostInfoWithTimeout(5000).then((info) => {
-            if (!info || !info.port) {
-                throw new Error('Local host server returned no listening port.');
-            }
-            inSocket = io(`http://127.0.0.1:${info.port}`, {
-                timeout: 5000,
-                reconnectionDelay: 500,
-                reconnectionDelayMax: 2000
-            });
-            generateBtn.disabled = false;
-            generateBtn.textContent = 'توليد رمز';
-            inSocket.on('connect', () => {
-                inSocket.emit('register-host-ui');
-                hostConnectionStatus.textContent = 'جاهز لإنشاء جلسة داخل الشبكة المحلية.';
-                hostConnectionStatus.className = 'status-text ok';
-            });
-            inSocket.on('disconnect', () => {
-                hostConnectionStatus.textContent = 'انقطع الاتصال بخدمة الاستقبال؛ جارٍ إعادة الاتصال.';
-                hostConnectionStatus.className = 'status-text err';
-            });
-            inSocket.on('connect_error', (error) => {
-                console.error('Host connection failed:', error);
-                hostConnectionStatus.textContent = 'تعذر الاتصال بخدمة الاستقبال على هذا الحاسوب.';
-                hostConnectionStatus.className = 'status-text err';
-            });
-            inSocket.on('host-session-state', renderHostSession);
-            inSocket.on('control-permission-changed', ({ studentId, enabled }) => {
-                if (studentId !== selectedStudentId) return;
-                isTeacherControlEnabled = Boolean(enabled);
-                updateTeacherControlUi();
-            });
-            inSocket.on('sender-paused-sharing', ({ studentId }) => applyIncomingFreeze(true, studentId));
-            inSocket.on('sender-resumed-sharing', ({ studentId }) => applyIncomingFreeze(false, studentId));
-            inSocket.on('sender-stopped-sharing', ({ studentId }) => clearIncomingViewer(studentId));
-            inSocket.on('sender-left', ({ studentId }) => clearIncomingViewer(studentId));
-            inSocket.on('webrtc-offer', async ({ studentId, offer }) => {
-                if (!studentId || studentId !== selectedStudentId) return;
-                try {
-                    if (inPC) inPC.close();
-                    if (incomingStudentId !== studentId) inPendingCandidates = [];
-                    incomingStudentId = studentId;
-                    const peerConnection = new RTCPeerConnection({ iceServers: [] });
-                    inPC = peerConnection;
-                    peerConnection.ontrack = (event) => {
-                        if (
-                            inPC === peerConnection &&
-                            studentId === selectedStudentId &&
-                            event.streams &&
-                            event.streams[0]
-                        ) {
-                            remoteVideo.srcObject = event.streams[0];
-                            isReceivingIncoming = true;
-                            isIncomingPaused = false;
-                            freezeCanvas.classList.remove('active');
-                            window.electronAPI.setWindowSizeMode(isTeacherMode ? 'viewer' : 'compact');
-                            window.electronAPI.showWindow();
-                            updateTeacherControlUi();
-                        }
-                    };
-                    peerConnection.onicecandidate = (event) => {
-                        if (event.candidate && inPC === peerConnection) {
-                            inSocket.emit('webrtc-ice-candidate', {
-                                candidate: event.candidate,
-                                target: 'sender',
-                                studentId
-                            });
-                        }
-                    };
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-                    if (inPC !== peerConnection || selectedStudentId !== studentId) return;
-                    for (const cand of inPendingCandidates) {
-                        await peerConnection.addIceCandidate(new RTCIceCandidate(cand));
-                    }
-                    inPendingCandidates = [];
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
-                    if (inPC !== peerConnection || selectedStudentId !== studentId) return;
-                    inSocket.emit('webrtc-answer', { studentId, answer });
-                } catch (err) {
-                    console.error('Incoming WebRTC error:', err);
-                }
-            });
-            inSocket.on('webrtc-ice-candidate', async ({ studentId, candidate }) => {
-                if (studentId !== selectedStudentId) return;
-                if (incomingStudentId && incomingStudentId !== studentId) return;
-                incomingStudentId = studentId;
-                try {
-                    if (inPC && inPC.remoteDescription) {
-                        await inPC.addIceCandidate(new RTCIceCandidate(candidate));
-                    } else {
-                        inPendingCandidates.push(candidate);
-                    }
-                } catch (err) {
-                    console.error(err);
-                }
-            });
-            remoteControlButtons.forEach((button) => {
-                button.addEventListener('click', () => {
-                    if (!inSocket || !isTeacherMode || !isTeacherControlEnabled || !isReceivingIncoming) return;
-                    inSocket.timeout(3000).emit(
-                        'host-control-key',
-                        { studentId: selectedStudentId, key: button.dataset.remoteKey },
-                        (error, response) => {
-                            if (error || !response || !response.ok) {
-                                updateTeacherControlUi();
-                                teacherControlStatus.textContent =
-                                    (response && response.message) || 'تعذر إرسال المفتاح؛ تحقق من الاتصال.';
-                            }
-                        }
-                    );
-                });
-            });
-        }).catch((error) => {
-            console.error('Local host initialization failed:', error);
-            generateBtn.disabled = true;
-            hostConnectionStatus.textContent = hasElectronBridge
-                ? 'تعذر بدء خدمة الاستقبال؛ أعد تشغيل التطبيق.'
-                : 'افتح تطبيق Lab show المكتبي؛ لا تفتح ملف HTML مباشرة في المتصفح.';
-            hostConnectionStatus.className = 'status-text err';
-        });
-    </script>
+    <script src="app.js"></script>
 </body>
 
 </html>

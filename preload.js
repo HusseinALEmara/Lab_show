@@ -1,24 +1,19 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
-    getHostInfo: () => ipcRenderer.invoke('get-host-info'),
-    findHostByCode: (code) => ipcRenderer.invoke('find-host-by-code', code),
+    getHostInfo: () => ipcRenderer.invoke('host-info'),
+    findHostByCode: (code) => ipcRenderer.invoke('find-host', code),
+    findGlobalHost: (code, username, relayUrl) =>
+        ipcRenderer.invoke('find-global-host', { code, username, relayUrl }),
+    setFullScreen: (flag) => ipcRenderer.send('window:fullscreen', flag),
+    setWindowSizeMode: (mode) => ipcRenderer.send('window:size-mode', mode),
+    showWindow: () => ipcRenderer.send('window:show'),
+    setOutgoingState: (state) => ipcRenderer.send('outgoing:state', state),
+    setStudentControlEnabled: (enabled) => ipcRenderer.send('outgoing:control', enabled),
+    applyControlKey: (key) => ipcRenderer.invoke('control:key', key),
 
-    setFullScreen: (flag) => ipcRenderer.send('set-fullscreen', flag),
-    setWindowSizeMode: (mode) => ipcRenderer.send('set-window-size-mode', mode),
-    hideToBackground: () => ipcRenderer.send('hide-to-background'),
-    showWindow: () => ipcRenderer.send('show-window'),
-    setOutgoingState: (state) => ipcRenderer.send('set-outgoing-state', state),
-    setStudentControlEnabled: (enabled) => ipcRenderer.send('set-student-control-enabled', enabled),
-    applyStudentControlKey: (key) => ipcRenderer.invoke('apply-student-control-key', key),
-
-    onTrayStopBroadcast: (cb) => {
-        ipcRenderer.on('tray-stop-broadcast', () => cb());
-    },
-    onTrayTogglePause: (cb) => {
-        ipcRenderer.on('tray-toggle-pause', () => cb());
-    },
-    onTrayToggleStudentControl: (cb) => {
-        ipcRenderer.on('tray-toggle-student-control', () => cb());
-    }
+    onTrayStopBroadcast: (callback) => ipcRenderer.on('tray:stop-broadcast', () => callback()),
+    onTrayTogglePause: (callback) => ipcRenderer.on('tray:toggle-pause', () => callback()),
+    onTrayToggleControl: (callback) => ipcRenderer.on('tray:toggle-control', () => callback()),
+    onFloatingClosed: (callback) => ipcRenderer.on('floating:closed', () => callback())
 });

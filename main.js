@@ -1,7 +1,9 @@
-const path = require('path');
-const os = require('os');
-const zlib = require('zlib');
-const dgram = require('dgram');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+const os = require('node:os');
+const zlib = require('node:zlib');
+const dgram = require('node:dgram');
+const { io: connectToRelay } = require('socket.io-client');
 const {
     app,
     BrowserWindow,
@@ -14,30 +16,22 @@ const {
     screen
 } = require('electron');
 
-const { createLocalHostNode, UDP_DISCOVERY_PORT } = require('./server');
-const { isAllowedControlKey, pressControlKey } = require('./keyboard-controls');
+const { createLocalHostNode, UDP_DISCOVERY_PORT } = require('./src/server');
+const { isAllowedControlKey, pressControlKey } = require('./src/keyboard-controls');
+const {
+    isInstallerShutdownRequest,
+    shouldQuitOnWindowClose
+} = require('./src/app-lifecycle');
 
 let mainWindow = null;
 let tray = null;
+let floatingWindow = null;
 let hostNode = null;
 let hostInfo = { port: 0, ips: [] };
 let isQuitting = false;
-let isOutgoingSharing = false;
-let isOutgoingPaused = false;
-let isStudentControlEnabled = false;
+let outgoingState = { sharing: false, paused: false, controlEnabled: false };
 
-const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) {
-    app.quit();
-} else {
-    app.on('second-instance', () => {
-        if (mainWindow) {
-            if (!mainWindow.isVisible()) mainWindow.show();
-            if (mainWindow.isMinimized()) mainWindow.restore();
-            mainWindow.focus();
-        }
-    });
-}
+app.setAppUserModelId('com.labshow.desktop');
 
 function createAppIcon() {
     const width = 32;
@@ -59,26 +53,29 @@ function createAppIcon() {
             }
         }
     }
-    const compressed = zlib.deflateSync(raw);
 
+    let crcTable = null;
     function crc32(buf) {
-        let crc = 0xffffffff;
-        for (let i = 0; i < buf.length; i++) {
-            crc ^= buf[i];
-            for (let j = 0; j < 8; j++) {
-                crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+        if (!crcTable) {
+            crcTable = new Uint32Array(256);
+            for (let n = 0; n < 256; n++) {
+                let c = n;
+                for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+                crcTable[n] = c >>> 0;
             }
         }
+        let crc = 0xffffffff;
+        for (const byte of buf) crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
         return (crc ^ 0xffffffff) >>> 0;
     }
 
-    function makeChunk(type, data) {
-        const len = Buffer.alloc(4);
-        len.writeUInt32BE(data.length, 0);
-        const typeBuf = Buffer.from(type, 'ascii');
-        const crcBuf = Buffer.alloc(4);
-        crcBuf.writeUInt32BE(crc32(Buffer.concat([typeBuf, data])), 0);
-        return Buffer.concat([len, typeBuf, data, crcBuf]);
+    function chunk(type, data) {
+        const length = Buffer.alloc(4);
+        length.writeUInt32BE(data.length, 0);
+        const typeBuffer = Buffer.from(type, 'ascii');
+        const crc = Buffer.alloc(4);
+        crc.writeUInt32BE(crc32(Buffer.concat([typeBuffer, data])), 0);
+        return Buffer.concat([length, typeBuffer, data, crc]);
     }
 
     const ihdr = Buffer.alloc(13);
@@ -87,143 +84,127 @@ function createAppIcon() {
     ihdr[8] = 8;
     ihdr[9] = 6;
 
-    const png = Buffer.concat([
+    return nativeImage.createFromBuffer(Buffer.concat([
         Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
-        makeChunk('IHDR', ihdr),
-        makeChunk('IDAT', compressed),
-        makeChunk('IEND', Buffer.alloc(0))
-    ]);
+        chunk('IHDR', ihdr),
+        chunk('IDAT', zlib.deflateSync(raw)),
+        chunk('IEND', Buffer.alloc(0))
+    ]));
+}
 
-    return nativeImage.createFromBuffer(png);
+async function quitApplication() {
+    if (isQuitting) return;
+    isQuitting = true;
+    if (floatingWindow && !floatingWindow.isDestroyed()) floatingWindow.destroy();
+    floatingWindow = null;
+    if (hostNode) {
+        await hostNode.stop();
+        hostNode = null;
+    }
+    app.quit();
 }
 
 function findHostByCodeOnLan(code) {
     return new Promise((resolve) => {
         const socket = dgram.createSocket('udp4');
         let settled = false;
-
         const finish = (result) => {
             if (settled) return;
             settled = true;
-            try { socket.close(); } catch { }
+            clearTimeout(timer);
+            try { socket.close(); } catch { /* already closed */ }
             resolve(result);
         };
-
         const timer = setTimeout(() => finish(null), 1600);
 
         socket.on('message', (msg, rinfo) => {
             const text = msg.toString();
             const prefix = `LAB_SHOW_MATCH:${code}:`;
             if (text.startsWith(prefix)) {
-                const port = parseInt(text.slice(prefix.length), 10);
-                if (port > 0) {
-                    clearTimeout(timer);
-                    finish({ ip: rinfo.address, port });
-                }
+                const port = Number(text.slice(prefix.length));
+                if (Number.isInteger(port) && port > 0) finish({ ip: rinfo.address, port });
             }
         });
-
-        socket.on('error', () => {
-            clearTimeout(timer);
-            finish(null);
-        });
-
+        socket.on('error', () => finish(null));
         socket.bind(() => {
             socket.setBroadcast(true);
             const packet = Buffer.from(`LAB_SHOW_FIND:${code}`);
             socket.send(packet, UDP_DISCOVERY_PORT, '255.255.255.255');
-
-            const interfaces = os.networkInterfaces();
-            for (const name of Object.keys(interfaces)) {
-                for (const iface of interfaces[name]) {
-                    if (iface.family === 'IPv4' && !iface.internal && iface.netmask) {
-                        const ipParts = iface.address.split('.').map(Number);
-                        const maskParts = iface.netmask.split('.').map(Number);
-                        const bcast = ipParts.map((p, i) => (p | (~maskParts[i] & 255))).join('.');
-                        socket.send(packet, UDP_DISCOVERY_PORT, bcast);
-                    }
+            for (const interfaces of Object.values(os.networkInterfaces())) {
+                for (const iface of interfaces || []) {
+                    if (iface.family !== 'IPv4' || iface.internal || !iface.netmask) continue;
+                    const ip = iface.address.split('.').map(Number);
+                    const mask = iface.netmask.split('.').map(Number);
+                    socket.send(packet, UDP_DISCOVERY_PORT,
+                        ip.map((part, i) => (part | (~mask[i] & 255))).join('.'));
                 }
             }
         });
     });
 }
 
-function rebuildTrayMenu() {
-    if (!tray) return;
+function sendToRenderer(channel, payload) {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+}
 
-    const menu = Menu.buildFromTemplate([
+function rebuildTrayMenu(icon) {
+    if (!tray) return;
+    const { sharing, paused, controlEnabled } = outgoingState;
+    tray.setContextMenu(Menu.buildFromTemplate([
         {
-            label: isOutgoingPaused ? 'استئناف البث' : 'إيقاف البث مؤقتاً',
-            enabled: isOutgoingSharing,
-            click: () => {
-                if (mainWindow && mainWindow.webContents) {
-                    mainWindow.webContents.send('tray-toggle-pause');
-                }
-            }
+            label: paused ? 'استئناف البث' : 'إيقاف البث مؤقتاً',
+            enabled: sharing,
+            click: () => sendToRenderer('tray:toggle-pause')
         },
         {
-            label: isStudentControlEnabled ? 'إيقاف تحكم الأستاذ بالمفاتيح' : 'السماح للأستاذ بالمفاتيح',
-            enabled: isOutgoingSharing && !isOutgoingPaused,
-            click: () => {
-                if (mainWindow && mainWindow.webContents) {
-                    mainWindow.webContents.send('tray-toggle-student-control');
-                }
-            }
+            label: controlEnabled ? 'إيقاف تحكم الأستاذ بالمفاتيح' : 'السماح للأستاذ بالمفاتيح',
+            enabled: sharing && !paused,
+            click: () => sendToRenderer('tray:toggle-control')
         },
         {
             label: 'إيقاف البث',
-            enabled: isOutgoingSharing,
-            click: () => {
-                if (mainWindow && mainWindow.webContents) {
-                    mainWindow.webContents.send('tray-stop-broadcast');
-                }
-            }
-        },
-        {
-            label: 'الدخول للتطبيق',
-            click: () => {
-                if (mainWindow) {
-                    mainWindow.show();
-                    mainWindow.focus();
-                }
-            }
+            enabled: sharing,
+            click: () => sendToRenderer('tray:stop-broadcast')
         },
         { type: 'separator' },
         {
-            label: 'إغلاق التطبيق',
-            click: async () => {
-                isQuitting = true;
-                if (hostNode) {
-                    await hostNode.stop();
-                }
-                app.quit();
+            label: 'فتح التطبيق',
+            click: () => {
+                if (!mainWindow || mainWindow.isDestroyed()) return;
+                if (mainWindow.isMinimized()) mainWindow.restore();
+                mainWindow.show();
+                mainWindow.focus();
             }
-        }
-    ]);
+        },
+        {
+            label: 'تصغير التطبيق',
+            enabled: Boolean(mainWindow && mainWindow.isVisible()),
+            click: () => mainWindow && mainWindow.minimize()
+        },
+        { type: 'separator' },
+        { label: 'إغلاق التطبيق', click: quitApplication }
+    ]));
 
-    tray.setContextMenu(menu);
-
-    if (isOutgoingSharing && isOutgoingPaused) {
-        tray.setToolTip('Lab show - البث متوقف مؤقتاً');
-    } else if (isOutgoingSharing) {
-        tray.setToolTip('Lab show - يبث الشاشة حالياً');
-    } else {
-        tray.setToolTip('Lab show - يعمل بالخلفية');
-    }
+    tray.setToolTip(paused
+        ? 'Lab show - البث متوقف مؤقتاً'
+        : sharing
+            ? 'Lab show - يبث الشاشة حالياً'
+            : 'Lab show - التطبيق يعمل');
+    tray.setImage(icon);
 }
 
 function createWindowAndTray() {
     const icon = createAppIcon();
-
     mainWindow = new BrowserWindow({
-        width: 470,
-        height: 450,
-        minWidth: 430,
-        minHeight: 380,
+        width: 1280,
+        height: 800,
+        minWidth: 640,
+        minHeight: 520,
         title: 'Lab show',
         icon,
         autoHideMenuBar: true,
         show: false,
+        backgroundColor: '#0f172a',
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             contextIsolation: true,
@@ -236,18 +217,16 @@ function createWindowAndTray() {
 
     mainWindow.webContents.setWindowOpenHandler(({ frameName }) => {
         if (frameName === 'FloatingPlayer') {
-            const primaryDisplay = screen.getPrimaryDisplay();
-            const { width: sw, height: sh } = primaryDisplay.workAreaSize;
-            const fw = 420;
-            const fh = 245;
-
+            const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+            const fw = 480;
+            const fh = 300;
             return {
                 action: 'allow',
                 overrideBrowserWindowOptions: {
                     width: fw,
                     height: fh,
-                    x: sw - fw - 20,
-                    y: sh - fh - 20,
+                    x: width - fw - 20,
+                    y: height - fh - 20,
                     minWidth: 260,
                     minHeight: 160,
                     frame: false,
@@ -256,9 +235,9 @@ function createWindowAndTray() {
                     resizable: true,
                     backgroundColor: '#000000',
                     webPreferences: {
-                        sandbox: false,
                         contextIsolation: true,
-                        nodeIntegration: false
+                        nodeIntegration: false,
+                        sandbox: false
                     }
                 }
             };
@@ -266,127 +245,153 @@ function createWindowAndTray() {
         return { action: 'deny' };
     });
 
-    mainWindow.webContents.on('did-create-window', (childWindow, details) => {
-        if (details.frameName === 'FloatingPlayer') {
-            // منع ظهور النافذة العائمة عند مشاركة الشاشة للطرف الآخر
-            childWindow.setContentProtection(true);
-            childWindow.setAlwaysOnTop(true, 'screen-saver');
+    mainWindow.webContents.on('did-create-window', (child, details) => {
+        if (details.frameName !== 'FloatingPlayer') return;
+        floatingWindow = child;
+        child.setContentProtection(true);
+        child.setAlwaysOnTop(true, 'screen-saver');
+        child.on('closed', () => {
+            floatingWindow = null;
+            if (!isQuitting) sendToRenderer('floating:closed');
+        });
+    });
+
+    mainWindow.on('close', (event) => {
+        if (shouldQuitOnWindowClose(isQuitting)) {
+            event.preventDefault();
+            quitApplication();
         }
     });
 
-    mainWindow.on('close', (e) => {
-        if (!isQuitting) {
-            e.preventDefault();
-            if (mainWindow.isFullScreen()) {
-                mainWindow.setFullScreen(false);
-            }
-            mainWindow.hide();
-        }
-    });
-
-    mainWindow.once('ready-to-show', () => {
-        mainWindow.show();
-    });
+    mainWindow.once('ready-to-show', () => mainWindow.show());
 
     tray = new Tray(icon);
-    rebuildTrayMenu();
+    rebuildTrayMenu(icon);
 
     tray.on('click', () => {
-        tray.popUpContextMenu();
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+    });
+    tray.on('right-click', () => tray.popUpContextMenu());
+}
+
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+    app.quit();
+} else if (isInstallerShutdownRequest(process.argv)) {
+    isQuitting = true;
+    app.quit();
+} else {
+    app.on('second-instance', (_event, commandLine) => {
+        if (isInstallerShutdownRequest(commandLine)) {
+            isQuitting = true;
+            app.quit();
+            return;
+        }
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            if (!mainWindow.isVisible()) mainWindow.show();
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.focus();
+        }
     });
 }
 
+app.on('before-quit', () => {
+    isQuitting = true;
+    if (tray) {
+        tray.destroy();
+        tray = null;
+    }
+});
+
+app.on('window-all-closed', () => app.quit());
+
 app.whenReady().then(async () => {
     session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
-        desktopCapturer
-            .getSources({ types: ['screen'] })
-            .then((sources) => {
-                if (sources && sources.length > 0) {
-                    callback({ video: sources[0] });
-                } else {
-                    callback({});
-                }
-            })
-            .catch(() => callback({}));
+        desktopCapturer.getSources({ types: ['screen'] }).then(
+            (sources) => callback(sources && sources.length ? { video: sources[0] } : {}),
+            () => callback({})
+        );
     });
 
     hostNode = createLocalHostNode();
     hostInfo = await hostNode.start();
     createWindowAndTray();
-    await mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+    // pathToFileURL encodes spaces in paths such as "C:\Users\Alwand Center\...".
+    const entryUrl = pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href;
+    await mainWindow.loadURL(entryUrl);
+}).catch((error) => {
+    console.error('فشل تشغيل التطبيق:', error);
+    app.quit();
 });
 
-ipcMain.handle('get-host-info', () => hostInfo);
+ipcMain.handle('host-info', () => hostInfo);
+ipcMain.handle('find-host', (_event, code) => findHostByCodeOnLan(String(code || '')));
 
-ipcMain.handle('find-host-by-code', async (_e, code) => {
-    return await findHostByCodeOnLan(code);
+ipcMain.handle('find-global-host', async (_event, { code, username, relayUrl } = {}) => {
+    const url = String(relayUrl || process.env.LABSHOW_RELAY_URL || 'http://127.0.0.1:4477');
+    const client = connectToRelay(url, {
+        transports: ['websocket'], forceNew: true, reconnection: false, timeout: 5000
+    });
+    try {
+        await new Promise((resolve, reject) => {
+            client.once('connect', resolve);
+            client.once('connect_error', reject);
+        });
+        const result = await new Promise((resolve) => {
+            client.timeout(5000).emit('relay:find', {
+                code: String(code || '').trim(),
+                username: String(username || '').trim()
+            }, (error, reply) => resolve(
+                error ? { ok: false, message: 'خادم المطابقة لم يستجب.' } : reply
+            ));
+        });
+        return result;
+    } catch (error) {
+        return { ok: false, message: 'تعذر الاتصال بخادم المطابقة العالمية.' };
+    } finally {
+        client.disconnect();
+    }
 });
 
-ipcMain.on('set-fullscreen', (_e, flag) => {
-    if (!mainWindow) return;
+ipcMain.on('window:fullscreen', (_event, flag) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.setFullScreen(Boolean(flag));
     mainWindow.setMenuBarVisibility(!flag);
 });
 
-ipcMain.on('set-window-size-mode', (_e, mode) => {
-    if (!mainWindow || mainWindow.isFullScreen()) return;
-    if (mode === 'viewer') {
-        const [w, h] = mainWindow.getSize();
-        if (w < 920 || h < 580) {
-            mainWindow.setSize(1040, 660);
-            mainWindow.center();
-        }
-    } else if (mode === 'compact') {
-        mainWindow.setSize(470, 450);
-        mainWindow.center();
+// الواجهة تتكيف مع حجم النافذة الذي يختاره المستخدم؛ لا نفرض أحجاماً عند تبديل الشاشات.
+ipcMain.on('window:size-mode', () => {});
+
+ipcMain.on('window:show', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.show();
+    mainWindow.focus();
+});
+
+ipcMain.on('outgoing:state', (_event, state) => {
+    if (!state || typeof state !== 'object') return;
+    outgoingState.sharing = Boolean(state.sharing);
+    outgoingState.paused = Boolean(state.paused);
+    if (!outgoingState.sharing || outgoingState.paused) outgoingState.controlEnabled = false;
+    if (tray) rebuildTrayMenu(createAppIcon());
+});
+
+ipcMain.on('outgoing:control', (_event, enabled) => {
+    outgoingState.controlEnabled = Boolean(enabled) && outgoingState.sharing && !outgoingState.paused;
+    if (tray) rebuildTrayMenu(createAppIcon());
+});
+
+ipcMain.handle('control:key', async (event, key) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+        return { ok: false, message: 'التحكم متاح من نافذة التطبيق فقط.' };
     }
-});
-
-ipcMain.on('hide-to-background', () => {
-    if (mainWindow) mainWindow.hide();
-});
-
-ipcMain.on('show-window', () => {
-    if (mainWindow) {
-        mainWindow.show();
-        mainWindow.focus();
-    }
-});
-
-ipcMain.on('set-outgoing-state', (_e, state) => {
-    if (typeof state === 'object' && state !== null) {
-        isOutgoingSharing = Boolean(state.sharing);
-        isOutgoingPaused = Boolean(state.paused);
-    } else {
-        isOutgoingSharing = Boolean(state);
-        isOutgoingPaused = false;
-    }
-    if (!isOutgoingSharing || isOutgoingPaused) {
-        isStudentControlEnabled = false;
-    }
-    rebuildTrayMenu();
-});
-
-ipcMain.on('set-student-control-enabled', (event, enabled) => {
-    if (!mainWindow || event.sender !== mainWindow.webContents) return;
-    isStudentControlEnabled = Boolean(enabled) && isOutgoingSharing && !isOutgoingPaused;
-    rebuildTrayMenu();
-});
-
-ipcMain.handle('apply-student-control-key', async (event, key) => {
-    if (
-        !mainWindow ||
-        event.sender !== mainWindow.webContents ||
-        !isStudentControlEnabled ||
-        !isOutgoingSharing ||
-        isOutgoingPaused
-    ) {
+    if (!outgoingState.controlEnabled || !outgoingState.sharing || outgoingState.paused) {
         return { ok: false, message: 'التحكم غير مفعّل على هذا الجهاز.' };
     }
-    if (!isAllowedControlKey(key)) {
-        return { ok: false, message: 'هذا المفتاح غير مسموح.' };
-    }
-
+    if (!isAllowedControlKey(key)) return { ok: false, message: 'هذا المفتاح غير مسموح.' };
     await pressControlKey(key);
     return { ok: true };
 });
