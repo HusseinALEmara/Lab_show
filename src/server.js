@@ -9,7 +9,7 @@ const { io: connectToRelay } = require('socket.io-client');
 const { createSessionStore } = require('./session-store');
 const { USERNAME_PATTERN } = require('./global-relay');
 const { PROTOCOL_VERSION, isCompatible } = require('./protocol');
-const { normalizeCode } = require('./session-fields');
+const { normalizeCode, generateSessionCode } = require('./session-fields');
 const { isAllowedControlKey } = require('./keyboard-controls');
 
 const UDP_DISCOVERY_PORT = 41234;
@@ -157,7 +157,7 @@ function createLocalHostNode() {
 
     async function reserveUniqueCode() {
         for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
-            const candidate = String(crypto.randomInt(100000, 1000000));
+            const candidate = generateSessionCode();
             reservingCode = candidate;
             const taken = await probeCodeOnLan(candidate);
             if (!taken) {
@@ -166,15 +166,7 @@ function createLocalHostNode() {
             }
         }
         reservingCode = null;
-        return String(crypto.randomInt(100000, 1000000));
-    }
-
-    function generateSessionToken(length = 12) {
-        const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-        const bytes = crypto.randomBytes(length);
-        let token = '';
-        for (let i = 0; i < length; i++) token += alphabet[bytes[i] % alphabet.length];
-        return token;
+        return generateSessionCode();
     }
 
     async function registerWithRelay({ code, username, relayUrl, endpoint, durationMinutes }) {
@@ -243,7 +235,7 @@ function createLocalHostNode() {
             let globalUrl = '';
             if (global) {
                 usernameValue = username.trim();
-                relayToken = generateSessionToken(12);
+                relayToken = generateSessionCode(12);
                 const endpoint = `${getLocalIPs()[0] || '127.0.0.1'}:${listeningPort}`;
                 const params = new URLSearchParams({
                     c: code,

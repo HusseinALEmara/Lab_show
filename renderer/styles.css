@@ -72,7 +72,7 @@ button.small { min-height: 30px; padding: 4px 10px; font-size: 0.74rem; }
 }
 .title-input:focus, .code-input:focus, select:focus { border-color: var(--teal-bright); }
 .code-input {
-    font-size: clamp(1.1rem, 2vw, 1.5rem); letter-spacing: 5px;
+    font-size: clamp(1.1rem, 2vw, 1.4rem); letter-spacing: 3px;
     text-align: center; direction: ltr; padding: 8px;
 }
 .ltr { direction: ltr; text-align: left; }
@@ -309,6 +309,45 @@ body.viewer-active .video-placeholder { display: none; }
     border: none; border-radius: 7px; font-size: 0.72rem; cursor: pointer;
 }
 .direction-pad .key-up { grid-column: 2; }
+
+/* التبويبات داخل زر استقبال البثوث */
+.receiver-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
+}
+.option-main {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    text-align: right;
+    cursor: pointer;
+}
+.receiver-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
+    padding: 4px;
+    border-radius: 10px;
+    background: var(--bg-2);
+}
+.receiver-tab {
+    min-height: 32px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.76rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+.receiver-tab.active { background: var(--teal); color: #fff; }
 
 /* شريط حالة البث في الشاشة الرئيسية */
 .live-status-bar {

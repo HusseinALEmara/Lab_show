@@ -24,13 +24,19 @@
                         <small>أدخل رمز الأستاذ وعنوان بثك</small>
                     </span>
                 </button>
-                <button class="role-option receiver" id="teacherStartBtn">
-                    <span class="option-icon" aria-hidden="true">▣</span>
-                    <span class="option-text">
-                        <strong>أستقبل البثوث</strong>
-                        <small>أنشئ رمزاً وشاهد شاشات الطلاب</small>
-                    </span>
-                </button>
+                <div class="role-option receiver receiver-group">
+                    <button class="option-main" id="teacherStartBtn">
+                        <span class="option-icon" aria-hidden="true">▣</span>
+                        <span class="option-text">
+                            <strong>أستقبل البثوث</strong>
+                            <small>أنشئ رمزاً وشاهد شاشات الطلاب</small>
+                        </span>
+                    </button>
+                    <div class="receiver-tabs" role="tablist">
+                        <button id="tabCode" class="receiver-tab active" role="tab" aria-selected="true">توليد رمز</button>
+                        <button id="tabBroadcasts" class="receiver-tab" role="tab" aria-selected="false">البثوث الحالية</button>
+                    </div>
+                </div>
             </div>
         </section>
         <div class="live-status-bar" id="liveStatusBar" hidden>
@@ -54,7 +60,7 @@
                     <h3>بيانات الانضمام</h3>
                 </div>
                 <label class="field-label" for="codeInput">الرمز الفريد</label>
-                <input id="codeInput" class="code-input" type="text" maxlength="6" inputmode="numeric"
+                <input id="codeInput" class="code-input" type="text" maxlength="12"
                     placeholder="أدخل رمز البث الذي حصلت عليه" autocomplete="off" />
 
                 <div id="globalStudentFields" hidden>
@@ -116,10 +122,6 @@
         <header class="screen-header">
             <button class="icon-btn" id="backFromTeacherBtn" title="العودة" aria-label="رجوع">←</button>
             <h2>استقبال البثوث</h2>
-            <div class="screen-tabs" role="tablist">
-                <button id="tabCode" class="screen-tab active" role="tab" aria-selected="true">توليد رمز</button>
-                <button id="tabBroadcasts" class="screen-tab" role="tab" aria-selected="false">البثوث الحالية</button>
-            </div>
         </header>
 
         <div class="teacher-pages">

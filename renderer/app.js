@@ -168,8 +168,14 @@
         const isGrid = dom.studentRoster.classList.toggle('grid-view');
         dom.rosterViewBtn.textContent = isGrid ? 'عرض قائمة' : 'عرض شبكي';
     });
-    dom.tabCode.addEventListener('click', () => openTeacherPage('code'));
-    dom.tabBroadcasts.addEventListener('click', () => openTeacherPage('broadcasts'));
+    dom.tabCode.addEventListener('click', () => {
+        if (role !== 'teacher') setRole('teacher');
+        openTeacherPage('code');
+    });
+    dom.tabBroadcasts.addEventListener('click', () => {
+        if (role !== 'teacher') setRole('teacher');
+        openTeacherPage('broadcasts');
+    });
 
     bindSegmented(dom.studentConnectionMode, (mode) => {
         dom.globalStudentFields.hidden = mode !== 'global';
@@ -571,8 +577,8 @@
             return;
         }
         let cleanCode = String(code || '').trim();
-        if (!/^\d{6}$/.test(cleanCode)) {
-            setStatus(statusElement, 'أدخل رمز الأستاذ المكوّن من ستة أرقام.', 'err');
+        if (!/^(?:\d{6}|[A-Z2-9]{12})$/.test(cleanCode)) {
+            setStatus(statusElement, 'أدخل رمز البث المكوّن من 12 خانة.', 'err');
             return;
         }
         if (outgoingBusy) return;
@@ -655,6 +661,10 @@
         if (isSharingOutgoing) stopOutgoingShare(true);
         dom.codeInput.value = '';
         setOutgoingNotice('أدخل رمز الأستاذ لبدء مشاركة شاشتك');
+    });
+
+    dom.codeInput.addEventListener('input', () => {
+        dom.codeInput.value = dom.codeInput.value.toUpperCase();
     });
 
     dom.codeInput.addEventListener('keydown', (event) => {

@@ -1,8 +1,17 @@
 const MAX_TITLE_LENGTH = 80;
-const CODE_PATTERN = /^\d{6}$/;
+const CODE_PATTERN = /^(?:\d{6}|[A-Z2-9]{12})$/;
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 function normalizeCode(value) {
-    return typeof value === 'string' ? value.trim() : '';
+    return typeof value === 'string' ? value.trim().toUpperCase() : '';
+}
+
+function generateSessionCode(length = 12) {
+    const crypto = require('node:crypto');
+    const bytes = crypto.randomBytes(length);
+    let code = '';
+    for (let i = 0; i < length; i++) code += CODE_ALPHABET[bytes[i] % CODE_ALPHABET.length];
+    return code;
 }
 
 function isValidCode(value) {
@@ -29,6 +38,7 @@ module.exports = {
     MAX_TITLE_LENGTH,
     normalizeCode,
     isValidCode,
+    generateSessionCode,
     normalizeTitle,
     normalizeDurationMinutes
 };
