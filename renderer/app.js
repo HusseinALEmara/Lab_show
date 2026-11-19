@@ -56,7 +56,8 @@
         remoteKeyButtons: Array.from(document.querySelectorAll('[data-remote-key]')),
         videoBox: $('videoBox'), remoteVideo: $('remoteVideo'), freezeCanvas: $('freezeCanvas'),
         videoPlaceholder: $('videoPlaceholder'), viewerTitle: $('viewerTitle'),
-        receiverPauseBtn: $('receiverPauseBtn'), floatBtn: $('floatBtn'), fullscreenBtn: $('fullscreenBtn'),
+        receiverPauseBtn: $('receiverPauseBtn'), selfBroadcastBtn: $('selfBroadcastBtn'),
+        floatBtn: $('floatBtn'), fullscreenBtn: $('fullscreenBtn'),
         expandIcon: $('expandIcon'), compressIcon: $('compressIcon')
     };
 
@@ -79,6 +80,9 @@
     let outStream = null;
     let outPC = null;
     let outPendingIce = [];
+    let outQualityTimer = null;
+    let outQualityController = null;
+    let outgoingGlobal = false;
     let outgoingRequestId = 0;
     let joinedStudentId = null;
     let isSharingOutgoing = false;
@@ -295,6 +299,11 @@
 
     function stopOutgoingViewing() {
         outgoingRequestId += 1;
+        if (outQualityTimer) {
+            clearInterval(outQualityTimer);
+            outQualityTimer = null;
+        }
+        outQualityController = null;
         if (outPC) {
             outPC.ontrack = null;
             outPC.onicecandidate = null;
@@ -312,6 +321,50 @@
         const pc = new RTCPeerConnection({ iceServers: [] });
         outPC = pc;
         outStream.getTracks().forEach((track) => pc.addTrack(track, outStream));
+
+        const sender = pc.getSenders().find((item) => item.track && item.track.kind === 'video');
+        const qualityApi = window.AdaptiveQuality;
+        if (sender && qualityApi && qualityApi.createQualityController) {
+            outQualityController = qualityApi.createQualityController({
+                mode: outgoingGlobal ? 'global' : 'local'
+            });
+            const applyQuality = async (result) => {
+                try {
+                    const params = sender.getParameters();
+                    if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+                    params.encodings[0].maxBitrate = result.maxBitrate;
+                    params.encodings[0].scaleResolutionDownBy = result.scaleResolutionDownBy;
+                    await sender.setParameters(params);
+                } catch (error) {
+                    console.error('تعذر تطبيق جودة البث:', error);
+                }
+            };
+            applyQuality(outQualityController.state);
+            outQualityTimer = setInterval(async () => {
+                if (outPC !== pc || !outQualityController || !socket.connected) return;
+                try {
+                    const stats = await pc.getStats();
+                    let availableBitrate = null;
+                    let lossRatio = 0;
+                    let jitterMs = 0;
+                    stats.forEach((report) => {
+                        if (report.type === 'candidate-pair' && report.state === 'succeeded' &&
+                            report.availableOutgoingBitrate) {
+                            availableBitrate = report.availableOutgoingBitrate;
+                        }
+                        if (report.type === 'remote-inbound-rtp' && report.kind === 'video') {
+                            lossRatio = report.fractionLost || 0;
+                            jitterMs = (report.jitter || 0) * 1000;
+                        }
+                    });
+                    const result = outQualityController.update({ availableBitrate, lossRatio, jitterMs });
+                    if (result.changed) await applyQuality(result);
+                } catch (error) {
+                    console.error('تعذر قراءة إحصاءات البث:', error);
+                }
+            }, 3000);
+        }
+
         pc.onicecandidate = (event) => {
             if (event.candidate && outPC === pc && outSocket === socket) {
                 socket.emit('student:ice', { studentId, candidate: event.candidate });
@@ -372,9 +425,9 @@
                 try {
                     outStream = await navigator.mediaDevices.getDisplayMedia({
                         video: {
-                            frameRate: { ideal: 24, max: 30 },
-                            width: { max: 1600 },
-                            height: { max: 900 }
+                            frameRate: { ideal: 30, max: 30 },
+                            width: { ideal: 1920, max: 1920 },
+                            height: { ideal: 1080, max: 1080 }
                         },
                         audio: false
                     });
@@ -505,6 +558,7 @@
         syncOutgoingUi();
         let resolvedTarget = target;
         let globalIdentity = null;
+        outgoingGlobal = segmentedValue(dom.studentConnectionMode) === 'global';
         if (!resolvedTarget && segmentedValue(dom.studentConnectionMode) === 'global') {
             const rawLink = dom.globalLinkInput.value.trim();
             if (!rawLink) {
@@ -907,6 +961,16 @@
 
         pc.ontrack = (event) => {
             if (incoming.get(studentId) !== entry || !event.streams || !event.streams[0]) return;
+            if (networkMode === 'global') {
+                // تأخير مخبّأ بسيط في الوضع العالمي فقط لامتصاص التذبذب، دون تقطيع البث.
+                pc.getReceivers().forEach((receiver) => {
+                    try {
+                        if ('jitterBufferTarget' in receiver) receiver.jitterBufferTarget = 1500;
+                    } catch (error) {
+                        /* الخاصية غير مدعومة في هذا المتصفح */
+                    }
+                });
+            }
             entry.stream = event.streams[0];
             const tile = tileVideos.get(studentId);
             if (tile) tile.srcObject = entry.stream;
@@ -1034,6 +1098,18 @@
             { ip: '127.0.0.1', port: hostInfo.port },
             dom.selfShareStatus
         );
+    });
+
+    dom.selfBroadcastBtn.addEventListener('click', () => {
+        if (role !== 'teacher') return;
+        openTeacherPage('code');
+        if (isSharingOutgoing) {
+            stopOutgoingShare(true);
+            setStatus(dom.selfShareStatus, 'تم إيقاف مشاركة شاشتي.');
+            return;
+        }
+        outgoingGlobal = networkMode === 'global';
+        dom.selfShareBtn.click();
     });
 
     dom.receiverPauseBtn.addEventListener('click', () => {

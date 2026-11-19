@@ -1,7 +1,7 @@
 {
   "name": "lab-show",
   "productName": "Lab show",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "description": "تطبيق سطح مكتب لمشاركة الشاشات والتحكم داخل شبكة المختبر المحلية",
   "main": "main.js",
   "scripts": {

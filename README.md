@@ -6,7 +6,7 @@
 
 ## تحميل أحدث نسخة
 من صفحة [Releases](https://github.com/HusseinALEmara/Lab_show/releases) نزّل
-`Lab show Setup 2.4.0.exe` وثبّته؛ التحديث يغلق النسخة القديمة تلقائياً.
+`Lab show Setup 2.5.0.exe` وثبّته؛ التحديث يغلق النسخة القديمة تلقائياً.
 
 ## التشغيل
 
