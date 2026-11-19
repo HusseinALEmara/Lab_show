@@ -26,6 +26,9 @@ Thumbs.db
 /tests/
 /PLAN.md
 
+# Obsolete/local files
+/lab_show.txt
+
 # Temporary and test output
 .cache/
 coverage/
