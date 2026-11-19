@@ -4,7 +4,7 @@ const MIN_SUPPORTED_VERSION = 2;
 function isCompatible(clientVersion, sessionVersion) {
     if (!clientVersion || !sessionVersion) return true; // older clients without version field
     return Number(clientVersion) >= MIN_SUPPORTED_VERSION &&
-        Number(clientVersion) === Number(sessionVersion);
+        Number(sessionVersion) >= MIN_SUPPORTED_VERSION;
 }
 
 const protocolApi = { PROTOCOL_VERSION, MIN_SUPPORTED_VERSION, isCompatible };
