@@ -21,7 +21,7 @@
     };
 
     const dom = {
-        roleScreen: $('roleScreen'),
+        roleScreen: $('roleScreen'), liveStatusBar: $('liveStatusBar'), liveStatusText: $('liveStatusText'),
         studentScreen: $('studentScreen'), teacherScreen: $('teacherScreen'),
         studentStartBtn: $('studentStartBtn'), teacherStartBtn: $('teacherStartBtn'),
         backFromStudentBtn: $('backFromStudentBtn'), backFromTeacherBtn: $('backFromTeacherBtn'),
@@ -48,6 +48,7 @@
         generatedBox: $('generatedBox'), generatedCode: $('generatedCode'), generatedTitle: $('generatedTitle'),
         copyCodeBtn: $('copyCodeBtn'), globalLinkBox: $('globalLinkBox'),
         globalLinkText: $('globalLinkText'), copyGlobalLinkBtn: $('copyGlobalLinkBtn'),
+        globalTokenText: $('globalTokenText'),
         hostTimer: $('hostTimer'), hostStateText: $('hostStateText'),
         selfShareBtn: $('selfShareBtn'), selfShareStatus: $('selfShareStatus'), deleteCodeBtn: $('deleteCodeBtn'),
         rosterCard: $('rosterCard'), studentRoster: $('studentRoster'), emptyRoster: $('emptyRoster'),
@@ -83,6 +84,7 @@
     let outQualityTimer = null;
     let outQualityController = null;
     let outgoingGlobal = false;
+    let receiverFound = false;
     let outgoingRequestId = 0;
     let joinedStudentId = null;
     let isSharingOutgoing = false;
@@ -203,9 +205,18 @@
         if (dom.studentControlStatus) dom.studentControlStatus.textContent = message;
     }
 
+    function setLiveStatus(message, active = true) {
+        dom.liveStatusBar.hidden = !active;
+        dom.liveStatusText.textContent = message;
+    }
+
     function syncOutgoingUi(message) {
         dom.codeCard.hidden = isSharingOutgoing;
         dom.broadcastCard.hidden = !isSharingOutgoing;
+        if (!isSharingOutgoing) {
+            receiverFound = false;
+            setLiveStatus('', false);
+        }
         dom.titleDisplayText.textContent = dom.broadcastTitleInput.value || '—';
         dom.broadcastStatusPill.textContent = isPausedOutgoing ? 'متوقف مؤقتاً' : 'يبث الآن';
         dom.studentControlToggle.disabled = !isSharingOutgoing || isPausedOutgoing || permissionPending;
@@ -414,7 +425,8 @@
                 code,
                 title: broadcastTitle,
                 username: globalIdentity ? globalIdentity.username : undefined,
-                token: globalIdentity ? globalIdentity.token : undefined
+                token: globalIdentity ? globalIdentity.token : undefined,
+                protocolVersion: window.LabShowProtocol ? window.LabShowProtocol.PROTOCOL_VERSION : undefined
             }, async (error, response) => {
                 if (error || !response || !response.ok) {
                     stopOutgoingShare(false);
@@ -448,8 +460,9 @@
                     isPausedOutgoing = false;
                     outgoingBusy = false;
                     syncOutgoingUi();
-                    setOutgoingNotice(
-                        'بدأت مشاركة الشاشة. سيظهر بثك عند اختيارك من الأستاذ.', 'ok');
+                    receiverFound = false;
+                    setLiveStatus('البث يعمل الآن · بانتظار المستقبل');
+                    showRoleScreen();
                     outStream.getVideoTracks().forEach((track) => {
                         track.addEventListener('ended', () => {
                             if (outSocket === socket && isSharingOutgoing) {
@@ -510,6 +523,16 @@
                 console.error('فشل التحكم بالمفاتيح:', error);
                 syncOutgoingUi('تعذر تنفيذ مفتاح التحكم على هذا الجهاز.');
             }
+        });
+
+        socket.on('student:selected', () => {
+            receiverFound = true;
+            setLiveStatus('البث يعمل الآن · تم العثور على المستقبل');
+        });
+
+        socket.on('session:expiring', () => {
+            setLiveStatus('البث سينتهي خلال 5 دقائق');
+            setOutgoingNotice('البث سينتهي خلال 5 دقائق.', 'err');
         });
 
         socket.on('control:permission', ({ enabled }) => {
@@ -923,8 +946,18 @@
             ? 'شبكة عالمية'
             : 'شبكة محلية';
         dom.globalLinkBox.hidden = !(networkMode === 'global' && session.globalUrl);
-        if (dom.globalLinkBox.hidden) dom.globalLinkText.textContent = '';
-        else dom.globalLinkText.textContent = session.globalUrl;
+        if (dom.globalLinkBox.hidden) {
+            dom.globalLinkText.textContent = '';
+            dom.globalTokenText.textContent = '';
+        } else {
+            dom.globalLinkText.textContent = session.globalUrl;
+            try {
+                dom.globalTokenText.textContent =
+                    new URL(session.globalUrl).searchParams.get('t') || '';
+            } catch (error) {
+                dom.globalTokenText.textContent = '';
+            }
+        }
         updateHostTimer(session.expiresAt);
         renderStudentRoster(hostStudents);
         if (role === 'teacher' && hostStudents.length && teacherPage === 'code') {
@@ -1029,6 +1062,9 @@
         socket.on('session:expired', () => {
             setStatus(dom.hostStatus, 'انتهت مدة صلاحية الرمز.', 'err');
         });
+        socket.on('session:expiring', () => {
+            setStatus(dom.hostStatus, 'تحذير: ستنتهي صلاحية الرمز خلال 5 دقائق.', 'err');
+        });
         socket.on('control:permission', ({ studentId, enabled }) => {
             if (studentId !== selectedStudentId) return;
             const selected = hostStudents.find((student) => student.id === studentId);
@@ -1060,7 +1096,8 @@
         inSocket.timeout(10000).emit('host:create', {
             networkMode,
             durationMinutes: Number(dom.durationSelect.value),
-            username: networkMode === 'global' ? dom.globalTeacherUsername.value.trim() : undefined
+            username: networkMode === 'global' ? dom.globalTeacherUsername.value.trim() : undefined,
+            protocolVersion: window.LabShowProtocol ? window.LabShowProtocol.PROTOCOL_VERSION : undefined
         }, (error, response) => {
             if (error || !response || !response.ok) {
                 setStatus(dom.hostStatus,

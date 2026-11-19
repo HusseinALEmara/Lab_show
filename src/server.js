@@ -8,6 +8,7 @@ const { io: connectToRelay } = require('socket.io-client');
 
 const { createSessionStore } = require('./session-store');
 const { USERNAME_PATTERN } = require('./global-relay');
+const { PROTOCOL_VERSION, isCompatible } = require('./protocol');
 const { normalizeCode } = require('./session-fields');
 const { isAllowedControlKey } = require('./keyboard-controls');
 
@@ -105,6 +106,7 @@ function createLocalHostNode() {
     let reservingCode = null;
     let udpSocket = null;
     let expirationTimer = null;
+    let warningTimer = null;
     let listeningPort = 0;
     let relayClient = null;
 
@@ -130,6 +132,8 @@ function createLocalHostNode() {
         if (!current) return;
         if (expirationTimer) clearTimeout(expirationTimer);
         expirationTimer = null;
+        if (warningTimer) clearTimeout(warningTimer);
+        warningTimer = null;
 
         for (const student of current.students) {
             sendToStudent(student.id, 'session:ended', { reason, message });
@@ -163,6 +167,14 @@ function createLocalHostNode() {
         }
         reservingCode = null;
         return String(crypto.randomInt(100000, 1000000));
+    }
+
+    function generateSessionToken(length = 12) {
+        const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        const bytes = crypto.randomBytes(length);
+        let token = '';
+        for (let i = 0; i < length; i++) token += alphabet[bytes[i] % alphabet.length];
+        return token;
     }
 
     async function registerWithRelay({ code, username, relayUrl, endpoint, durationMinutes }) {
@@ -214,7 +226,7 @@ function createLocalHostNode() {
             if (!isLoopbackAddress(socket.handshake.address)) {
                 return safeCallback(callback, { ok: false, message: 'يجب إنشاء الجلسة من هذا الجهاز.' });
             }
-            const { title, durationMinutes, networkMode, username, relayUrl, publicEndpoint } = payload;
+            const { title, durationMinutes, networkMode, username, relayUrl, publicEndpoint, protocolVersion } = payload;
             const global = networkMode === 'global';
             if (global && !USERNAME_PATTERN.test(String(username || '').trim())) {
                 return safeCallback(callback, {
@@ -231,7 +243,7 @@ function createLocalHostNode() {
             let globalUrl = '';
             if (global) {
                 usernameValue = username.trim();
-                relayToken = crypto.randomBytes(12).toString('hex');
+                relayToken = generateSessionToken(12);
                 const endpoint = `${getLocalIPs()[0] || '127.0.0.1'}:${listeningPort}`;
                 const params = new URLSearchParams({
                     c: code,
@@ -244,7 +256,8 @@ function createLocalHostNode() {
 
             const session = store.create({
                 code, title, durationMinutes, networkMode,
-                username: usernameValue, relayToken, globalUrl
+                username: usernameValue, relayToken, globalUrl,
+                protocolVersion: protocolVersion || PROTOCOL_VERSION
             });
 
             if (session.expiresAt) {
@@ -252,6 +265,18 @@ function createLocalHostNode() {
                     endSession('expired', 'انتهت مدة صلاحية الرمز.');
                 }, session.expiresAt - Date.now());
                 expirationTimer.unref?.();
+                const warningDelay = session.expiresAt - Date.now() - 5 * 60 * 1000;
+                if (warningDelay > 0) {
+                    warningTimer = setTimeout(() => {
+                        if (hostSocketId) {
+                            io.to(hostSocketId).emit('session:expiring', { expiresAt: session.expiresAt });
+                        }
+                        for (const student of store.serialize()?.students || []) {
+                            sendToStudent(student.id, 'session:expiring', { expiresAt: session.expiresAt });
+                        }
+                    }, warningDelay);
+                    warningTimer.unref?.();
+                }
             }
 
             emitState();
@@ -267,6 +292,7 @@ function createLocalHostNode() {
             if (!isHost(socket)) return safeCallback(callback, { ok: false, message: 'مصدر التحكم غير مصرح.' });
             const result = store.select(studentId);
             if (!result.ok) return safeCallback(callback, { ok: false, message: 'الطالب غير متصل بالبث حالياً.' });
+            sendToStudent(studentId, 'student:selected', { studentId });
             emitState();
             safeCallback(callback, { ok: true, studentId });
         });
@@ -307,8 +333,14 @@ function createLocalHostNode() {
             sendToStudent(studentId, 'webrtc:ice', { studentId, candidate });
         });
 
-        socket.on('student:join', ({ code, title, username, token } = {}, callback) => {
+        socket.on('student:join', ({ code, title, username, token, protocolVersion } = {}, callback) => {
             const current = store.serialize();
+            if (current && !isCompatible(protocolVersion, current.protocolVersion)) {
+                return safeCallback(callback, {
+                    ok: false,
+                    message: 'إصدارات التطبيق غير متوافقة؛ حدّث كلا الجهازين إلى النسخة نفسها.'
+                });
+            }
             if (current && current.networkMode === 'global') {
                 if (String(username || '').trim() !== current.username || token !== current.relayToken) {
                     return safeCallback(callback, {
@@ -466,6 +498,8 @@ function createLocalHostNode() {
         stop: () => new Promise((resolve) => {
             if (expirationTimer) clearTimeout(expirationTimer);
             expirationTimer = null;
+            if (warningTimer) clearTimeout(warningTimer);
+            warningTimer = null;
             if (relayClient) {
                 relayClient.disconnect();
                 relayClient = null;

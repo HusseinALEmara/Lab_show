@@ -32,6 +32,7 @@ function createSessionStore({ now = Date.now } = {}) {
             username: session.username,
             relayToken: session.relayToken,
             globalUrl: session.globalUrl,
+            protocolVersion: session.protocolVersion,
             durationMinutes: session.durationMinutes,
             expiresAt: session.expiresAt,
             selectedStudentId: session.selectedStudentId,
@@ -49,7 +50,7 @@ function createSessionStore({ now = Date.now } = {}) {
         return Boolean(session && session.expiresAt && now() >= session.expiresAt);
     }
 
-    function create({ code, title, durationMinutes, networkMode, username, relayToken, globalUrl }) {
+    function create({ code, title, durationMinutes, networkMode, username, relayToken, globalUrl, protocolVersion }) {
         const duration = normalizeDurationMinutes(durationMinutes);
         session = {
             code: normalizeCode(code),
@@ -58,6 +59,7 @@ function createSessionStore({ now = Date.now } = {}) {
             username: typeof username === 'string' ? username.trim() : '',
             relayToken: typeof relayToken === 'string' ? relayToken : '',
             globalUrl: typeof globalUrl === 'string' ? globalUrl : '',
+            protocolVersion: protocolVersion || null,
             durationMinutes: duration,
             expiresAt: duration ? now() + duration * 60 * 1000 : null,
             students: new Map(),

@@ -33,6 +33,10 @@
                 </button>
             </div>
         </section>
+        <div class="live-status-bar" id="liveStatusBar" hidden>
+            <span class="live-dot" aria-hidden="true"></span>
+            <span id="liveStatusText">البث يعمل الآن</span>
+        </div>
     </div>
 
     <!-- شاشة المُبث -->
@@ -127,11 +131,10 @@
                     </div>
                     <label class="field-label" for="durationSelect">مدة فعالية الرمز</label>
                     <select id="durationSelect">
-                        <option value="0">بدون مدة (إيقاف يدوي)</option>
-                        <option value="5">5 دقائق</option>
-                        <option value="10" selected>10 دقائق</option>
-                        <option value="15">15 دقيقة</option>
-                        <option value="30">30 دقيقة</option>
+                        <option value="20">20 دقيقة</option>
+                        <option value="60">ساعة واحدة</option>
+                        <option value="180" selected>3 ساعات</option>
+                        <option value="480">8 ساعات (الحد الأقصى)</option>
                     </select>
 
                     <label class="field-label">نوع الشبكة</label>
@@ -160,6 +163,8 @@
                     </div>
                     <div class="generated-title" id="generatedTitle"></div>
                     <div class="global-link-box" id="globalLinkBox" hidden>
+                        <span>الرمز الفريد للجلسة (12 خانة)</span>
+                        <strong class="global-token" id="globalTokenText"></strong>
                         <span>رابط الجلسة العالمية — أرسله للطالب</span>
                         <code id="globalLinkText"></code>
                         <button class="btn-secondary small" id="copyGlobalLinkBtn" type="button">نسخ الرابط</button>
@@ -252,6 +257,7 @@
 
     <script src="../node_modules/socket.io-client/dist/socket.io.min.js"></script>
     <script src="../src/adaptive-quality.js"></script>
+    <script src="../src/protocol.js"></script>
     <script src="app.js"></script>
 </body>
 

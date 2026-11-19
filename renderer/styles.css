@@ -310,6 +310,41 @@ body.viewer-active .video-placeholder { display: none; }
 }
 .direction-pad .key-up { grid-column: 2; }
 
+/* شريط حالة البث في الشاشة الرئيسية */
+.live-status-bar {
+    position: fixed;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    max-width: 92vw;
+    padding: 9px 16px;
+    border-radius: 999px;
+    border: 1px solid var(--olive);
+    background: rgba(8, 13, 14, 0.94);
+    color: var(--text);
+    font-size: 0.78rem;
+    font-weight: 700;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    z-index: 50;
+}
+.live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--olive-bright);
+    box-shadow: 0 0 0 4px rgba(157, 178, 77, 0.18);
+}
+.global-token {
+    direction: ltr;
+    text-align: left;
+    color: var(--olive-bright);
+    letter-spacing: 2px;
+    font-size: 0.9rem;
+}
+
 /* محددات الشبكة بأزرار مستديرة بدل قائمة منسدلة */
 .segmented {
     display: grid;
