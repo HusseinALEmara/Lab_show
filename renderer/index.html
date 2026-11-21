@@ -4,261 +4,231 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http: https: ws: wss:" />
     <title>Lab show</title>
     <link rel="stylesheet" href="styles.css" />
 </head>
 
 <body>
-    <!-- اختيار الوضع -->
-    <div class="role-screen" id="roleScreen">
-        <section class="role-card">
-            <img class="brand-mark" src="logo.png" alt="Lab show" />
-            <p class="eyebrow">شبكة المختبر المحلية</p>
-            <h1>Lab show</h1>
-            <p class="lead">اختر دورك. يمكنك العودة وتغيير الدور في أي وقت دون إيقاف بث قائم.</p>
-            <div class="role-options">
-                <button class="role-option broadcaster" id="studentStartBtn">
-                    <span class="option-icon" aria-hidden="true">↗</span>
-                    <span class="option-text">
-                        <strong>أبث شاشتي</strong>
-                        <small>أدخل رمز الأستاذ وعنوان بثك</small>
-                    </span>
-                </button>
-                <button class="role-option receiver" id="teacherStartBtn">
-                    <span class="option-icon" aria-hidden="true">▣</span>
-                    <span class="option-text">
-                        <strong>أستقبل البثوث</strong>
-                        <small>أنشئ رمزاً وشاهد شاشات الطلاب</small>
-                    </span>
-                </button>
+    <header class="app-bar">
+        <div class="brand">
+            <img class="brand-mark small" src="logo.png" alt="" />
+            <div>
+                <strong>Lab show</strong>
+                <small data-i18n="app.subtitle"></small>
             </div>
-        </section>
+        </div>
         <div class="live-status-bar" id="liveStatusBar" hidden>
             <span class="live-dot" aria-hidden="true"></span>
-            <span id="liveStatusText">البث يعمل الآن</span>
+            <span id="liveStatusText"></span>
         </div>
-    </div>
+        <button class="btn-ghost small" id="langToggle" type="button" data-i18n="lang.toggle"></button>
+    </header>
 
-    <!-- شاشة المُبث -->
-    <section class="screen student-screen" id="studentScreen" hidden>
-        <header class="screen-header">
-            <button class="icon-btn" id="backFromStudentBtn" title="العودة" aria-label="رجوع">←</button>
-            <h2>مشاركة الشاشة</h2>
-            <span class="header-hint">أنت المُبث</span>
-        </header>
+    <main class="split">
+        <!-- ===== Send ===== -->
+        <section class="pane send-pane" aria-labelledby="sendHeading">
+            <h2 id="sendHeading" data-i18n="send.heading"></h2>
+            <p class="hint" data-i18n="send.hint"></p>
 
-        <div class="student-layout">
             <div class="card" id="codeCard">
-                <div class="card-heading">
-                    <span class="step-number">1</span>
-                    <h3>بيانات الانضمام</h3>
-                </div>
-                <label class="field-label" for="codeInput">الرمز الفريد</label>
-                <input id="codeInput" class="code-input" type="text" maxlength="12"
-                    placeholder="أدخل رمز البث الذي حصلت عليه" autocomplete="off" />
-
-                <div id="globalStudentFields" hidden>
-                    <label class="field-label" for="globalUsernameInput">اسم المستخدم</label>
-                    <input id="globalUsernameInput" class="title-input" type="text" maxlength="32"
-                        placeholder="اسم المستخدم للطرف المستقبل للبث" autocomplete="off" />
-                    <label class="field-label" for="globalLinkInput">رابط الجلسة العالمية</label>
-                    <input id="globalLinkInput" class="title-input ltr" type="text"
-                        placeholder="https://labshow.link/j?..." autocomplete="off" />
-                </div>
-
-                <label class="field-label" for="joinTitleInput">عنوان البث</label>
-                <input id="joinTitleInput" class="title-input" type="text" maxlength="80"
-                    placeholder="عنوان بثك المميز" autocomplete="off" />
-
-                <label class="field-label">نوع الاتصال</label>
-                <div class="segmented" id="studentConnectionMode" role="group">
-                    <button type="button" data-mode="local" class="active">الشبكة المحلية</button>
-                    <button type="button" data-mode="global">مطابقة عالمية</button>
-                </div>
-
+                <label class="field-label" for="codeInput" data-i18n="send.code"></label>
+                <input id="codeInput" class="code-input ltr" type="text" maxlength="12" autocomplete="off"
+                    data-i18n-placeholder="send.codePh" />
+                <label class="field-label" for="sendLinkInput" data-i18n="send.link"></label>
+                <input id="sendLinkInput" class="title-input ltr" type="text" autocomplete="off"
+                    data-i18n-placeholder="send.linkPh" />
+                <label class="field-label" for="joinTitleInput" data-i18n="send.title"></label>
+                <input id="joinTitleInput" class="title-input" type="text" maxlength="80" autocomplete="off"
+                    data-i18n-placeholder="send.titlePh" />
                 <div class="btn-row">
-                    <button class="btn-ghost" id="cancelCodeBtn">إلغاء</button>
-                    <button class="btn-primary" id="approveCodeBtn">موافقة</button>
+                    <button class="btn-ghost" id="cancelCodeBtn" type="button" data-i18n="send.cancel"></button>
+                    <button class="btn-primary" id="approveCodeBtn" type="button" data-i18n="send.start"></button>
                 </div>
-                <div class="status-text" id="outgoingStatus">أدخل الرمز والعنوان لبدء البث</div>
+                <div class="status-text" id="outgoingStatus" role="status"></div>
             </div>
 
             <div class="card status-card" id="broadcastCard" hidden>
                 <div class="status-row">
-                    <span class="pill" id="broadcastStatusPill">يبث الآن</span>
-                    <span class="identity-chip" id="studentIdentity"></span>
+                    <span class="pill" id="broadcastStatusPill"></span>
+                    <span class="identity-chip ltr" id="studentIdentity"></span>
                 </div>
-
-                <button class="title-display" id="titleDisplayBtn" type="button" title="اضغط لتعديل العنوان">
+                <button class="title-display" id="titleDisplayBtn" type="button">
                     <span id="titleDisplayText">—</span>
-                    <span class="edit-hint">تعديل ✎</span>
+                    <span class="edit-hint" data-i18n="send.editHint"></span>
                 </button>
                 <div class="inline-form" id="titleEditor" hidden>
-                    <input id="broadcastTitleInput" class="title-input" type="text" maxlength="80"
-                        placeholder="عنوان البث" autocomplete="off" />
-                    <button class="btn-secondary" id="titleUpdateBtn">تحديث</button>
+                    <input id="broadcastTitleInput" class="title-input" type="text" maxlength="80" autocomplete="off" />
+                    <button class="btn-secondary" id="titleUpdateBtn" type="button" data-i18n="send.update"></button>
                 </div>
-
-                <button class="btn-warning full" id="studentControlToggle" role="switch" aria-checked="false" disabled>
-                    السماح بالتحكم بشاشتي
-                </button>
+                <button class="btn-warning full" id="studentControlToggle" type="button" role="switch"
+                    aria-checked="false" disabled></button>
                 <div class="split-row">
-                    <button class="btn-secondary" id="pauseBroadcastBtn" disabled>إيقاف مؤقت</button>
-                    <button class="btn-danger" id="stopBroadcastBtn">إيقاف البث</button>
+                    <button class="btn-secondary" id="pauseBroadcastBtn" type="button" disabled></button>
+                    <button class="btn-danger" id="stopBroadcastBtn" type="button" data-i18n="send.stop"></button>
                 </div>
-                <div class="remote-status" id="studentControlStatus">التحكم متوقف حتى تسمح به.</div>
+                <div class="remote-status" id="studentControlStatus"></div>
             </div>
-        </div>
-    </section>
 
-    <!-- شاشة المستقبل -->
-    <section class="screen teacher-screen" id="teacherScreen" hidden>
-        <header class="screen-header">
-            <button class="icon-btn" id="backFromTeacherBtn" title="العودة" aria-label="رجوع">←</button>
-            <h2>استقبال البثوث</h2>
-        </header>
+            <div class="card" id="publicCard">
+                <h3 data-i18n="pub.heading"></h3>
+                <p class="hint" data-i18n="pub.hint"></p>
+                <label class="field-label" for="pubTitleInput" data-i18n="pub.title"></label>
+                <input id="pubTitleInput" class="title-input" type="text" maxlength="80" autocomplete="off"
+                    data-i18n-placeholder="pub.titlePh" />
+                <label class="field-label" for="pubNameInput" data-i18n="pub.name"></label>
+                <input id="pubNameInput" class="title-input" type="text" maxlength="80" autocomplete="off"
+                    data-i18n-placeholder="pub.namePh" />
+                <label class="field-label" data-i18n="net.label"></label>
+                <div class="segmented" id="pubNetworkMode" role="group">
+                    <button type="button" data-mode="local" class="active" data-i18n="net.local"></button>
+                    <button type="button" data-mode="global" data-i18n="net.global"></button>
+                </div>
+                <label class="field-label" for="pubDurationSelect" data-i18n="recv.duration"></label>
+                <select id="pubDurationSelect">
+                    <option value="60" data-i18n="dur.60"></option>
+                    <option value="180" selected data-i18n="dur.180"></option>
+                    <option value="480" data-i18n="dur.480"></option>
+                </select>
+                <button class="btn-primary full" id="pubStartBtn" type="button" data-i18n="pub.start"></button>
+                <div class="status-text" id="pubStatus" role="status"></div>
+            </div>
+        </section>
 
-        <div class="teacher-tabbar" role="tablist">
-            <button id="tabCode" class="screen-tab active" role="tab" aria-selected="true">توليد رمز</button>
-            <button id="tabBroadcasts" class="screen-tab" role="tab" aria-selected="false">البثوث الحالية</button>
-        </div>
+        <!-- ===== Receive ===== -->
+        <section class="pane receive-pane" aria-labelledby="recvHeading">
+            <h2 id="recvHeading" data-i18n="recv.heading"></h2>
+            <p class="hint" data-i18n="recv.hint"></p>
 
-        <div class="teacher-pages">
-            <div class="teacher-page" id="codePage">
+            <div class="receive-top">
                 <div class="card" id="codeSettingsCard">
-                    <div class="card-heading">
-                        <span class="step-number">1</span>
-                        <h3>إعدادات الرمز</h3>
-                    </div>
-                    <label class="field-label" for="durationSelect">مدة فعالية الرمز</label>
+                    <label class="field-label" for="durationSelect" data-i18n="recv.duration"></label>
                     <select id="durationSelect">
-                        <option value="20">20 دقيقة</option>
-                        <option value="60">ساعة واحدة</option>
-                        <option value="180" selected>3 ساعات</option>
-                        <option value="480">8 ساعات (الحد الأقصى)</option>
+                        <option value="20" data-i18n="dur.20"></option>
+                        <option value="60" data-i18n="dur.60"></option>
+                        <option value="180" selected data-i18n="dur.180"></option>
+                        <option value="480" data-i18n="dur.480"></option>
                     </select>
-
-                    <label class="field-label">نوع الشبكة</label>
+                    <label class="field-label" data-i18n="net.label"></label>
                     <div class="segmented" id="networkModeSelect" role="group">
-                        <button type="button" data-mode="local" class="active">الشبكة المحلية</button>
-                        <button type="button" data-mode="global">الشبكة العالمية</button>
+                        <button type="button" data-mode="local" class="active" data-i18n="net.local"></button>
+                        <button type="button" data-mode="global" data-i18n="net.global"></button>
                     </div>
-                    <div id="globalTeacherFields" hidden>
-                        <label class="field-label" for="globalTeacherUsername">اسم المستخدم</label>
-                        <input id="globalTeacherUsername" class="title-input" type="text" maxlength="32"
-                            placeholder="اسم المستخدم للمشاركين" autocomplete="off" />
-                    </div>
-
-                    <button class="btn-primary full" id="generateBtn" disabled>توليد رمز</button>
-                    <div class="status-text" id="hostStatus" role="status">أنشئ رمزاً لاستقبال البث الحي</div>
+                    <button class="btn-primary full" id="generateBtn" type="button" disabled
+                        data-i18n="recv.generate"></button>
+                    <div class="status-text" id="hostStatus" role="status"></div>
                 </div>
 
                 <div class="card" id="generatedBox" hidden>
-                    <div class="card-heading">
-                        <span class="step-number">2</span>
-                        <h3>رمز الجلسة</h3>
+                    <div class="share-row">
+                        <span class="field-label" data-i18n="recv.code"></span>
+                        <div class="generated-code ltr" id="generatedCode">------</div>
+                        <button class="btn-secondary small" id="copyCodeBtn" type="button" data-i18n="recv.copy"></button>
                     </div>
-                    <div class="code-with-copy">
-                        <div class="generated-code" id="generatedCode">------</div>
-                        <button class="btn-secondary small" id="copyCodeBtn" type="button">نسخ</button>
+                    <div class="share-row">
+                        <span class="field-label" data-i18n="recv.link"></span>
+                        <code class="link-text ltr" id="globalLinkText"></code>
+                        <button class="btn-secondary small" id="copyGlobalLinkBtn" type="button" data-i18n="recv.copy"></button>
                     </div>
-                    <div class="generated-title" id="generatedTitle"></div>
-                    <div class="global-link-box" id="globalLinkBox" hidden>
-                        <span>الرمز الفريد للجلسة (12 خانة)</span>
-                        <strong class="global-token" id="globalTokenText"></strong>
-                        <span>رابط الجلسة العالمية — أرسله للطالب</span>
-                        <code id="globalLinkText"></code>
-                        <button class="btn-secondary small" id="copyGlobalLinkBtn" type="button">نسخ الرابط</button>
-                    </div>
+                    <div class="reach-note" id="reachNote" hidden></div>
                     <div class="meta-row">
-                        <span id="hostTimer">مفتوح</span>
-                        <span id="hostStateText">بانتظار الطلاب</span>
+                        <span id="generatedTitle"></span>
+                        <span id="hostTimer"></span>
+                        <span id="hostStateText"></span>
                     </div>
-                    <button class="btn-secondary full" id="selfShareBtn">مشاركة شاشتي أيضاً</button>
-                    <div class="status-text" id="selfShareStatus"></div>
-                    <button class="btn-danger full" id="deleteCodeBtn">إنهاء صلاحية الرمز</button>
+                    <button class="btn-danger full" id="deleteCodeBtn" type="button" data-i18n="recv.end"></button>
+                </div>
+
+                <div class="card" id="joinCard">
+                    <h3 data-i18n="join.heading"></h3>
+                    <label class="field-label" for="joinCodeInput" data-i18n="join.code"></label>
+                    <input id="joinCodeInput" class="code-input ltr" type="text" maxlength="12" autocomplete="off"
+                        data-i18n-placeholder="send.codePh" />
+                    <label class="field-label" for="joinLinkInput" data-i18n="join.link"></label>
+                    <input id="joinLinkInput" class="title-input ltr" type="text" autocomplete="off"
+                        data-i18n-placeholder="join.linkPh" />
+                    <label class="field-label" for="joinNameInput" data-i18n="join.name"></label>
+                    <input id="joinNameInput" class="title-input" type="text" maxlength="80" autocomplete="off"
+                        data-i18n-placeholder="pub.namePh" />
+                    <button class="btn-secondary full" id="joinRoomBtn" type="button" data-i18n="join.button"></button>
+                    <div class="status-text" id="joinStatus" role="status"></div>
                 </div>
             </div>
 
-            <div class="teacher-page" id="broadcastsPage" hidden>
-                <div class="broadcasts-layout">
-                    <section class="stage-column">
-                        <div class="video-box" id="videoBox">
-                            <video id="remoteVideo" autoplay playsinline muted></video>
-                            <canvas id="freezeCanvas" class="freeze-canvas"></canvas>
-                            <div class="viewer-title" id="viewerTitle"></div>
-                            <div class="video-controls">
-                                <button class="video-btn" id="selfBroadcastBtn" title="بث شاشتي من شاشة المشاهدة" aria-label="بث شاشتي">↗</button>
-                                <button class="video-btn" id="receiverPauseBtn" title="إيقاف البث مؤقتاً" aria-label="إيقاف مؤقت">⏸</button>
-                                <button class="video-btn" id="floatBtn" title="جعل البث عائماً" aria-label="تعويم البث">
-                                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                        <rect x="3" y="4" width="18" height="16" rx="2" />
-                                        <rect x="12" y="12" width="7" height="6" rx="1" fill="currentColor" />
-                                    </svg>
-                                </button>
-                                <button class="video-btn" id="fullscreenBtn" title="تكبير البث" aria-label="تكبير">
-                                    <svg id="expandIcon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2.2">
-                                        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
-                                    </svg>
-                                    <svg id="compressIcon" width="17" height="17" viewBox="0 0 24 24" fill="none"
-                                        stroke="currentColor" stroke-width="2.2" hidden>
-                                        <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
-                                    </svg>
-                                </button>
-                            </div>
+            <div class="broadcasts-layout">
+                <section class="stage-column">
+                    <div class="video-box" id="videoBox">
+                        <video id="remoteVideo" autoplay playsinline muted></video>
+                        <canvas id="freezeCanvas" class="freeze-canvas"></canvas>
+                        <div class="viewer-title" id="viewerTitle"></div>
+                        <div class="video-controls">
+                            <button class="video-btn" id="receiverPauseBtn" type="button" data-i18n-title="video.pause">⏸</button>
+                            <button class="video-btn" id="floatBtn" type="button" data-i18n-title="video.float">
+                                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="3" y="4" width="18" height="16" rx="2" />
+                                    <rect x="12" y="12" width="7" height="6" rx="1" fill="currentColor" />
+                                </svg>
+                            </button>
+                            <button class="video-btn" id="fullscreenBtn" type="button" data-i18n-title="video.full">
+                                <svg id="expandIcon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                                </svg>
+                                <svg id="compressIcon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="display:none">
+                                    <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
+                                </svg>
+                            </button>
                         </div>
-                        <div class="video-placeholder" id="videoPlaceholder">
-                            <div class="placeholder-icon" aria-hidden="true">▣</div>
-                            <p>اختر بثاً من القائمة لعرضه هنا</p>
-                        </div>
-                    </section>
+                    </div>
+                    <div class="video-placeholder" id="videoPlaceholder">
+                        <div class="placeholder-icon" aria-hidden="true">▣</div>
+                        <p data-i18n="recv.placeholder"></p>
+                    </div>
+                </section>
 
-                    <aside class="roster-column">
-                        <div class="card roster-card" id="rosterCard" hidden>
-                            <div class="roster-heading">
-                                <h3>البثوث الحالية</h3>
-                                <button class="btn-ghost small" id="rosterViewBtn" type="button">عرض شبكي</button>
-                            </div>
-                            <div class="student-roster" id="studentRoster"></div>
-                            <div class="status-text" id="emptyRoster">ستظهر هنا بطاقات الطلاب عند إدخال الرمز.</div>
+                <aside class="roster-column">
+                    <div class="card roster-card" id="rosterCard">
+                        <div class="roster-heading">
+                            <h3 data-i18n="recv.list"></h3>
+                            <button class="btn-ghost small" id="rosterViewBtn" type="button" data-i18n="recv.gridView"></button>
                         </div>
+                        <div class="student-roster" id="studentRoster"></div>
+                        <div class="status-text" id="emptyRoster" data-i18n="recv.empty"></div>
+                    </div>
 
-                        <div class="card" id="teacherControlsCard" hidden>
-                            <div class="card-heading">
-                                <span class="step-number">⌨</span>
-                                <h3>التحكم بحاسوب الطالب</h3>
-                            </div>
-                            <p class="hint">للطالب المحدد وبعد سماحه فقط.</p>
-                            <div class="remote-status" id="teacherControlStatus">بانتظار بث الشاشة</div>
-                            <div class="direction-pad" aria-label="مفاتيح الاتجاه">
-                                <button class="key-up" data-remote-key="ArrowUp" aria-label="أعلى">↑</button>
-                                <span aria-hidden="true"></span>
-                                <span aria-hidden="true"></span>
-                                <button data-remote-key="ArrowLeft" aria-label="يسار">←</button>
-                                <button data-remote-key="ArrowDown" aria-label="أسفل">↓</button>
-                                <button data-remote-key="ArrowRight" aria-label="يمين">→</button>
-                            </div>
-                            <div class="remote-key-grid">
-                                <button data-remote-key="Enter" aria-label="إدخال">إدخال</button>
-                                <button data-remote-key="Space" aria-label="مسافة">مسافة</button>
-                                <button data-remote-key="Escape" aria-label="خروج">خروج</button>
-                                <button data-remote-key="Tab" aria-label="جدولة">جدولة</button>
-                                <button data-remote-key="PageUp" aria-label="صفحة لأعلى">صفحة لأعلى</button>
-                                <button data-remote-key="PageDown" aria-label="صفحة لأسفل">صفحة لأسفل</button>
-                                <button data-remote-key="Home" aria-label="بداية">بداية</button>
-                                <button data-remote-key="End" aria-label="نهاية">نهاية</button>
-                            </div>
+                    <div class="card" id="teacherControlsCard" hidden>
+                        <h3 data-i18n="keys.heading"></h3>
+                        <p class="hint" data-i18n="keys.hint"></p>
+                        <div class="remote-status" id="teacherControlStatus"></div>
+                        <div class="direction-pad">
+                            <button class="key-up" data-remote-key="ArrowUp" type="button" aria-label="↑">↑</button>
+                            <span aria-hidden="true"></span>
+                            <span aria-hidden="true"></span>
+                            <button data-remote-key="ArrowLeft" type="button" aria-label="←">←</button>
+                            <button data-remote-key="ArrowDown" type="button" aria-label="↓">↓</button>
+                            <button data-remote-key="ArrowRight" type="button" aria-label="→">→</button>
                         </div>
-                    </aside>
-                </div>
+                        <div class="remote-key-grid">
+                            <button data-remote-key="Enter" type="button" data-i18n="key.Enter"></button>
+                            <button data-remote-key="Space" type="button" data-i18n="key.Space"></button>
+                            <button data-remote-key="Escape" type="button" data-i18n="key.Escape"></button>
+                            <button data-remote-key="Tab" type="button" data-i18n="key.Tab"></button>
+                            <button data-remote-key="PageUp" type="button" data-i18n="key.PageUp"></button>
+                            <button data-remote-key="PageDown" type="button" data-i18n="key.PageDown"></button>
+                            <button data-remote-key="Home" type="button" data-i18n="key.Home"></button>
+                            <button data-remote-key="End" type="button" data-i18n="key.End"></button>
+                        </div>
+                    </div>
+                </aside>
             </div>
-        </div>
-    </section>
+        </section>
+    </main>
 
     <script src="../node_modules/socket.io-client/dist/socket.io.min.js"></script>
     <script src="../src/adaptive-quality.js"></script>
     <script src="../src/protocol.js"></script>
+    <script src="../src/links.js"></script>
+    <script src="i18n.js"></script>
     <script src="app.js"></script>
 </body>
 

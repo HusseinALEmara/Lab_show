@@ -32,6 +32,7 @@ function createSessionStore({ now = Date.now } = {}) {
             username: session.username,
             relayToken: session.relayToken,
             globalUrl: session.globalUrl,
+            reachability: session.reachability,
             protocolVersion: session.protocolVersion,
             durationMinutes: session.durationMinutes,
             expiresAt: session.expiresAt,
@@ -50,7 +51,9 @@ function createSessionStore({ now = Date.now } = {}) {
         return Boolean(session && session.expiresAt && now() >= session.expiresAt);
     }
 
-    function create({ code, title, durationMinutes, networkMode, username, relayToken, globalUrl, protocolVersion }) {
+    function create({
+        code, title, durationMinutes, networkMode, username, relayToken, globalUrl, protocolVersion, reachability = 'lan'
+    }) {
         const duration = normalizeDurationMinutes(durationMinutes);
         session = {
             code: normalizeCode(code),
@@ -59,6 +62,7 @@ function createSessionStore({ now = Date.now } = {}) {
             username: typeof username === 'string' ? username.trim() : '',
             relayToken: typeof relayToken === 'string' ? relayToken : '',
             globalUrl: typeof globalUrl === 'string' ? globalUrl : '',
+            reachability,
             protocolVersion: protocolVersion || null,
             durationMinutes: duration,
             expiresAt: duration ? now() + duration * 60 * 1000 : null,

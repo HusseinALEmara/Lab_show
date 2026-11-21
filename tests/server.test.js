@@ -331,3 +331,249 @@ test('helpers: local-subnet check and constant-time secret comparison', () => {
     assert.equal(secretsMatch('abc', 'abcd'), false);
     assert.equal(secretsMatch('abc', undefined), false);
 });
+
+// ---------- global mode: no key control ----------
+
+test('global session: allowing key control is refused, and keys cannot be sent', async () => {
+    const ctx = await startNode();
+    try {
+        const { teacher, session } = await teacherWithSession(ctx, { durationMinutes: 60, networkMode: 'global' });
+        const token = new URL(session.globalUrl).searchParams.get('t');
+        const a = await sharingStudent(ctx, session.code, 'Remote', { token });
+        await ask(teacher, 'host:select', { studentId: a.id });
+        const permission = await ask(a.student, 'student:permission', { enabled: true });
+        assert.equal(permission.ok, false);
+        assert.equal(permission.error, 'control-local-only');
+        const keySeen = receivesWithin(a.student, 'control:key');
+        const sent = await ask(teacher, 'host:key', { studentId: a.id, key: 'Enter' });
+        assert.equal(sent.error, 'control-local-only');
+        assert.equal(await keySeen, false);
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('local session still allows key control after the global block', async () => {
+    const ctx = await startNode();
+    try {
+        const { teacher, session } = await teacherWithSession(ctx);
+        const a = await sharingStudent(ctx, session.code, 'Local');
+        await ask(teacher, 'host:select', { studentId: a.id });
+        assert.equal((await ask(a.student, 'student:permission', { enabled: true })).ok, true);
+        assert.equal((await ask(teacher, 'host:key', { studentId: a.id, key: 'Enter' })).ok, true);
+    } finally {
+        await ctx.close();
+    }
+});
+
+// ---------- global links carry the router's public address ----------
+
+async function startNodeWith(resolvePublicEndpoint) {
+    const node = createLocalHostNode({ resolvePublicEndpoint });
+    const info = await node.start();
+    const sockets = [];
+    return {
+        info,
+        open: async () => { const s = await connect(info.port); sockets.push(s); return s; },
+        close: async () => { sockets.forEach((s) => s.disconnect()); await node.stop(); }
+    };
+}
+
+test('global code: the link holds the public address the router opened', async () => {
+    const asked = [];
+    const ctx = await startNodeWith(async (port) => {
+        asked.push(port);
+        return { reachable: true, ip: '203.0.113.9', port: 40404 };
+    });
+    try {
+        const { session } = await teacherWithSession(ctx, { networkMode: 'global' });
+        assert.deepEqual(asked, [ctx.info.port], 'the port asked for is this node\'s own port');
+        assert.equal(new URL(session.globalUrl).searchParams.get('e'), '203.0.113.9:40404');
+        assert.equal(session.reachability, 'internet');
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('global code: when the router cannot open a port, the reason is reported', async () => {
+    const ctx = await startNodeWith(async () => ({ reachable: false, reason: 'cgnat' }));
+    try {
+        const { session } = await teacherWithSession(ctx, { networkMode: 'global' });
+        assert.equal(session.reachability, 'cgnat');
+        assert.match(new URL(session.globalUrl).searchParams.get('e'), new RegExp(`:${ctx.info.port}$`));
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('local code: the router is not asked', async () => {
+    let asked = false;
+    const ctx = await startNodeWith(async () => { asked = true; return null; });
+    try {
+        const { session } = await teacherWithSession(ctx);
+        assert.equal(asked, false);
+        assert.equal(session.reachability, 'lan');
+    } finally {
+        await ctx.close();
+    }
+});
+
+// ---------- public broadcast (room) ----------
+
+async function ownerWithRoom(ctx, payload = { title: 'Lecture', networkMode: 'local', ownerName: 'Host A' }) {
+    const owner = await ctx.open();
+    assert.deepEqual(await ask(owner, 'room:owner', { secret: ctx.info.hostSecret }), { ok: true });
+    const created = await ask(owner, 'room:create', payload, 10000);
+    assert.equal(created.ok, true, created.message);
+    return { owner, room: created.room };
+}
+
+async function viewer(ctx, room, name) {
+    const socket = await ctx.open();
+    const link = new URL(room.link);
+    const joined = await ask(socket, 'room:join', {
+        code: link.searchParams.get('c'), token: link.searchParams.get('t'), name, protocolVersion: 3
+    });
+    assert.equal(joined.ok, true, joined.message);
+    return { socket, id: joined.viewerId, joined };
+}
+
+test('room: only this computer\'s window with the secret can own a public broadcast', async () => {
+    const ctx = await startNode();
+    try {
+        const intruder = await ctx.open();
+        assert.equal((await ask(intruder, 'room:owner', { secret: 'nope' })).ok, false);
+        assert.equal((await ask(intruder, 'room:create', { title: 'x' })).ok, false);
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('room: code and link, joining, participants and comments for everyone', async () => {
+    const ctx = await startNode();
+    try {
+        const { owner, room } = await ownerWithRoom(ctx);
+        assert.match(room.code, /^[A-HJ-NP-Z2-9]{12}$/);
+        const link = new URL(room.link);
+        assert.equal(link.searchParams.get('k'), 'r');
+        assert.equal(link.searchParams.get('c'), room.code);
+        assert.match(link.searchParams.get('e'), new RegExp(`:${ctx.info.port}$`), 'this device serves its own broadcast');
+
+        const stranger = await ctx.open();
+        assert.equal((await ask(stranger, 'room:join', { code: room.code, token: 'WRONGWRONGWR' })).error, 'bad-token');
+        assert.equal((await ask(stranger, 'room:join', { code: room.code })).error, 'bad-token');
+
+        const joinedSeen = nextEvent(owner, 'room:viewer-joined');
+        const a = await viewer(ctx, room, 'Sara');
+        assert.equal((await joinedSeen).viewerId, a.id);
+        assert.equal(a.joined.room.title, 'Lecture');
+
+        const listSeen = nextEvent(a.socket, 'room:participants');
+        const b = await viewer(ctx, room, 'Omar');
+        assert.deepEqual((await listSeen).map((p) => p.name), ['Host A', 'Sara', 'Omar']);
+
+        // A comment from a viewer reaches the owner and every viewer.
+        const seen = [nextEvent(owner, 'room:comment'), nextEvent(a.socket, 'room:comment'), nextEvent(b.socket, 'room:comment')];
+        assert.equal((await ask(b.socket, 'room:comment', { text: 'Question about slide 3' })).ok, true);
+        for (const comment of await Promise.all(seen)) {
+            assert.equal(comment.text, 'Question about slide 3');
+            assert.equal(comment.name, 'Omar');
+        }
+        // The owner's comment is marked as the owner's.
+        const ownerComment = nextEvent(a.socket, 'room:comment');
+        await ask(owner, 'room:comment', { text: 'Welcome' });
+        assert.equal((await ownerComment).isOwner, true);
+
+        // A late viewer gets the history.
+        const c = await viewer(ctx, room, 'Late');
+        assert.deepEqual(c.joined.room.comments.map((x) => x.text), ['Question about slide 3', 'Welcome']);
+
+        // Someone not in the room cannot comment.
+        assert.equal((await ask(stranger, 'room:comment', { text: 'spam' })).error, 'not-in-room');
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('room: microphones show for everyone', async () => {
+    const ctx = await startNode();
+    try {
+        const { owner, room } = await ownerWithRoom(ctx);
+        const a = await viewer(ctx, room, 'Sara');
+        const updated = new Promise((resolve) => {
+            owner.on('room:participants', (list) => {
+                if (list.some((p) => p.id === a.id && p.micOn)) resolve(list);
+            });
+        });
+        a.socket.emit('room:mic', { on: true });
+        const list = await Promise.race([updated, new Promise((_, reject) => setTimeout(() => reject(new Error('no update')), 3000))]);
+        assert.equal(list.find((p) => p.id === a.id).micOn, true);
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('room: WebRTC signaling goes owner -> one viewer, and viewer -> owner only', async () => {
+    const ctx = await startNode();
+    try {
+        const { owner, room } = await ownerWithRoom(ctx);
+        const a = await viewer(ctx, room, 'A');
+        const b = await viewer(ctx, room, 'B');
+
+        const bSeen = receivesWithin(b.socket, 'room:signal');
+        const aSeen = nextEvent(a.socket, 'room:signal');
+        owner.emit('room:signal', { to: a.id, data: { sdp: { type: 'offer', sdp: 'v=0' } } });
+        assert.deepEqual(await aSeen, { from: 'owner', data: { sdp: { type: 'offer', sdp: 'v=0' } } });
+        assert.equal(await bSeen, false, 'other viewers do not see it');
+
+        const ownerSeen = nextEvent(owner, 'room:signal');
+        const aEcho = receivesWithin(a.socket, 'room:signal');
+        b.socket.emit('room:signal', { to: a.id, data: { sdp: { type: 'answer', sdp: 'v=0-b' } } });
+        assert.deepEqual(await ownerSeen, { from: b.id, data: { sdp: { type: 'answer', sdp: 'v=0-b' } } },
+            'a viewer cannot address another viewer; it always reaches the owner, under its own id');
+        assert.equal(await aEcho, false);
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('room: removing a viewer, ending, and the owner leaving', async () => {
+    const ctx = await startNode();
+    try {
+        const { owner, room } = await ownerWithRoom(ctx);
+        const a = await viewer(ctx, room, 'A');
+        const removed = nextEvent(a.socket, 'room:ended');
+        owner.emit('room:kick', { viewerId: a.id });
+        assert.equal((await removed).reason, 'removed');
+
+        const b = await viewer(ctx, room, 'B');
+        const ended = nextEvent(b.socket, 'room:ended');
+        owner.emit('room:end');
+        assert.equal((await ended).reason, 'ended');
+        const late = await ctx.open();
+        assert.equal((await ask(late, 'room:join', { code: room.code, token: 'X' })).error, 'no-room');
+
+        const second = await ask(owner, 'room:create', { title: 'Again' }, 10000);
+        const c = await viewer(ctx, second.room, 'C');
+        const gone = nextEvent(c.socket, 'room:ended');
+        owner.disconnect();
+        assert.equal((await gone).reason, 'owner-left');
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('a device can receive private broadcasts and run a public broadcast at the same time', async () => {
+    const ctx = await startNode();
+    try {
+        const { teacher, session } = await teacherWithSession(ctx);
+        const { room } = await ownerWithRoom(ctx);
+        const sender = await sharingStudent(ctx, session.code, 'Sender');
+        const watcher = await viewer(ctx, room, 'Watcher');
+        assert.notEqual(session.code, room.code);
+        assert.equal((await ask(teacher, 'host:select', { studentId: sender.id })).ok, true);
+        assert.ok(watcher.id.startsWith('v'));
+    } finally {
+        await ctx.close();
+    }
+});

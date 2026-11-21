@@ -107,16 +107,6 @@ test('preview server only serves files inside the project folder', () => {
         'a sibling folder sharing the name prefix is outside');
 });
 
-test('the interface accepts the global link the server generates', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'app.js'), 'utf8');
-    const match = /if \(!\/(.+?)\/\.test\(linkCode\)/.exec(source);
-    assert.ok(match, 'link code check found in renderer/app.js');
-    const rendererPattern = new RegExp(match[1]);
-    for (let i = 0; i < 50; i++) {
-        assert.equal(rendererPattern.test(fields.generateSessionCode()), true);
-    }
-});
-
 test('the interface loads the files the installer ships', () => {
     const html = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'index.html'), 'utf8');
     for (const [, src] of html.matchAll(/<script src="([^"]+)"/g)) {

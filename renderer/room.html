@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http: https: ws: wss:" />
+    <title>Lab show</title>
+    <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body class="room-page">
+    <header class="app-bar">
+        <div class="brand">
+            <img class="brand-mark small" src="logo.png" alt="" />
+            <div>
+                <strong id="roomTitle">Lab show</strong>
+                <small id="roomMeta"></small>
+            </div>
+        </div>
+        <span class="pill live-pill" id="livePill" hidden data-i18n="room.live"></span>
+        <button class="btn-ghost small" id="langToggle" type="button" data-i18n="lang.toggle"></button>
+    </header>
+
+    <main class="room-layout">
+        <section class="room-main">
+            <div class="room-video">
+                <video id="stageVideo" autoplay playsinline muted></video>
+                <div class="room-waiting" id="waitingNote" data-i18n="room.waiting"></div>
+            </div>
+            <audio id="mixAudio" autoplay></audio>
+
+            <div class="card share-card" id="shareCard" hidden>
+                <p class="hint" data-i18n="room.share"></p>
+                <div class="share-row">
+                    <span class="field-label" data-i18n="recv.code"></span>
+                    <div class="generated-code ltr" id="roomCode">------</div>
+                    <button class="btn-secondary small" id="copyRoomCode" type="button" data-i18n="recv.copy"></button>
+                </div>
+                <div class="share-row">
+                    <span class="field-label" data-i18n="recv.link"></span>
+                    <code class="link-text ltr" id="roomLink"></code>
+                    <button class="btn-secondary small" id="copyRoomLink" type="button" data-i18n="recv.copy"></button>
+                </div>
+                <div class="reach-note" id="roomReach" hidden></div>
+            </div>
+
+            <section class="card comments-card">
+                <h3 data-i18n="room.comments"></h3>
+                <div class="comment-list" id="commentList" aria-live="polite"></div>
+                <div class="status-text" id="noComments" data-i18n="room.noComments"></div>
+                <form class="comment-form" id="commentForm">
+                    <textarea id="commentInput" rows="2" maxlength="500" data-i18n-placeholder="room.commentPh"></textarea>
+                    <button class="btn-primary" id="commentSend" type="submit" data-i18n="room.send"></button>
+                </form>
+            </section>
+        </section>
+
+        <aside class="room-side">
+            <div class="card">
+                <button class="btn-secondary full" id="micBtn" type="button" data-i18n="room.micOn"></button>
+                <button class="btn-warning full" id="notifBtn" type="button" hidden data-i18n="room.notifOff"></button>
+                <button class="btn-danger full" id="endBtn" type="button"></button>
+                <div class="status-text" id="roomStatus" role="status"></div>
+            </div>
+            <div class="card participants-card">
+                <h3 id="participantsHeading"></h3>
+                <ul class="participant-list" id="participantList"></ul>
+            </div>
+        </aside>
+    </main>
+
+    <script src="../node_modules/socket.io-client/dist/socket.io.min.js"></script>
+    <script src="../src/protocol.js"></script>
+    <script src="i18n.js"></script>
+    <script src="room.js"></script>
+</body>
+
+</html>

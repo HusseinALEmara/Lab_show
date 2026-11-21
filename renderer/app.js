@@ -2,81 +2,61 @@
     'use strict';
 
     const $ = (id) => document.getElementById(id);
+    const I18n = window.LabShowI18n;
+    const Links = window.LabShowLinks;
+    const { t } = I18n;
     const bridge = window.electronAPI;
     const hasBridge = Boolean(bridge && typeof bridge.getHostInfo === 'function');
     const api = bridge || {
         getHostInfo: async () => null,
         findHostByCode: async () => null,
-        findGlobalHost: async () => ({ ok: false, message: 'المعاينة لا تدعم المطابقة العالمية.' }),
         setFullScreen() {},
         setWindowSizeMode() {},
         showWindow() {},
         setOutgoingState() {},
         setStudentControlEnabled() {},
-        applyControlKey: async () => ({ ok: false, message: 'التحكم غير متاح خارج التطبيق.' }),
+        applyControlKey: async () => ({ ok: false }),
+        canStartOutgoing: async () => ({ ok: true }),
+        openRoom: async () => ({ ok: false }),
         onTrayStopBroadcast() {},
         onTrayTogglePause() {},
         onTrayToggleControl() {},
-        onFloatingClosed() {}
+        onFloatingClosed() {},
+        onRoomOwnerState() {}
     };
 
-    const dom = {
-        roleScreen: $('roleScreen'), liveStatusBar: $('liveStatusBar'), liveStatusText: $('liveStatusText'),
-        studentScreen: $('studentScreen'), teacherScreen: $('teacherScreen'),
-        studentStartBtn: $('studentStartBtn'), teacherStartBtn: $('teacherStartBtn'),
-        backFromStudentBtn: $('backFromStudentBtn'), backFromTeacherBtn: $('backFromTeacherBtn'),
-        codeCard: $('codeCard'), broadcastCard: $('broadcastCard'),
-        codeInput: $('codeInput'), joinTitleInput: $('joinTitleInput'),
-        studentConnectionMode: $('studentConnectionMode'),
-        globalStudentFields: $('globalStudentFields'), globalUsernameInput: $('globalUsernameInput'),
-        globalLinkInput: $('globalLinkInput'),
-        approveCodeBtn: $('approveCodeBtn'), cancelCodeBtn: $('cancelCodeBtn'),
-        outgoingStatus: $('outgoingStatus'), studentIdentity: $('studentIdentity'),
-        broadcastStatusPill: $('broadcastStatusPill'),
-        titleDisplayBtn: $('titleDisplayBtn'), titleDisplayText: $('titleDisplayText'),
-        titleEditor: $('titleEditor'), broadcastTitleInput: $('broadcastTitleInput'),
-        titleUpdateBtn: $('titleUpdateBtn'),
-        pauseBroadcastBtn: $('pauseBroadcastBtn'), stopBroadcastBtn: $('stopBroadcastBtn'),
-        studentControlToggle: $('studentControlToggle'), studentControlStatus: $('studentControlStatus'),
-        tabCode: $('tabCode'), tabBroadcasts: $('tabBroadcasts'),
-        codePage: $('codePage'), broadcastsPage: $('broadcastsPage'),
-        codeSettingsCard: $('codeSettingsCard'),
-        networkModeSelect: $('networkModeSelect'),
-        globalTeacherFields: $('globalTeacherFields'), globalTeacherUsername: $('globalTeacherUsername'),
-        durationSelect: $('durationSelect'),
-        generateBtn: $('generateBtn'), hostStatus: $('hostStatus'),
-        generatedBox: $('generatedBox'), generatedCode: $('generatedCode'), generatedTitle: $('generatedTitle'),
-        copyCodeBtn: $('copyCodeBtn'), globalLinkBox: $('globalLinkBox'),
-        globalLinkText: $('globalLinkText'), copyGlobalLinkBtn: $('copyGlobalLinkBtn'),
-        globalTokenText: $('globalTokenText'),
-        hostTimer: $('hostTimer'), hostStateText: $('hostStateText'),
-        selfShareBtn: $('selfShareBtn'), selfShareStatus: $('selfShareStatus'), deleteCodeBtn: $('deleteCodeBtn'),
-        rosterCard: $('rosterCard'), studentRoster: $('studentRoster'), emptyRoster: $('emptyRoster'),
-        rosterViewBtn: $('rosterViewBtn'),
-        teacherControlsCard: $('teacherControlsCard'), teacherControlStatus: $('teacherControlStatus'),
-        remoteKeyButtons: Array.from(document.querySelectorAll('[data-remote-key]')),
-        videoBox: $('videoBox'), remoteVideo: $('remoteVideo'), freezeCanvas: $('freezeCanvas'),
-        videoPlaceholder: $('videoPlaceholder'), viewerTitle: $('viewerTitle'),
-        receiverPauseBtn: $('receiverPauseBtn'), selfBroadcastBtn: $('selfBroadcastBtn'),
-        floatBtn: $('floatBtn'), fullscreenBtn: $('fullscreenBtn'),
-        expandIcon: $('expandIcon'), compressIcon: $('compressIcon')
-    };
+    const ids = [
+        'liveStatusBar', 'liveStatusText', 'langToggle',
+        'codeCard', 'broadcastCard', 'codeInput', 'sendLinkInput', 'joinTitleInput',
+        'approveCodeBtn', 'cancelCodeBtn', 'outgoingStatus', 'studentIdentity', 'broadcastStatusPill',
+        'titleDisplayBtn', 'titleDisplayText', 'titleEditor', 'broadcastTitleInput', 'titleUpdateBtn',
+        'pauseBroadcastBtn', 'stopBroadcastBtn', 'studentControlToggle', 'studentControlStatus',
+        'publicCard', 'pubTitleInput', 'pubNameInput', 'pubNetworkMode', 'pubDurationSelect', 'pubStartBtn', 'pubStatus',
+        'codeSettingsCard', 'durationSelect', 'networkModeSelect', 'generateBtn', 'hostStatus',
+        'generatedBox', 'generatedCode', 'copyCodeBtn', 'globalLinkText', 'copyGlobalLinkBtn', 'reachNote',
+        'generatedTitle', 'hostTimer', 'hostStateText', 'deleteCodeBtn',
+        'joinCodeInput', 'joinLinkInput', 'joinNameInput', 'joinRoomBtn', 'joinStatus',
+        'rosterCard', 'studentRoster', 'emptyRoster', 'rosterViewBtn',
+        'teacherControlsCard', 'teacherControlStatus',
+        'videoBox', 'remoteVideo', 'freezeCanvas', 'videoPlaceholder', 'viewerTitle',
+        'receiverPauseBtn', 'floatBtn', 'fullscreenBtn', 'expandIcon', 'compressIcon'
+    ];
+    const dom = Object.fromEntries(ids.map((id) => [id, $(id)]));
+    dom.remoteKeyButtons = Array.from(document.querySelectorAll('[data-remote-key]'));
 
-    let role = 'student';
     let hostInfo = null;
     let inSocket = null;
+    let hostSession = null;
     let hostStudents = [];
     let selectedStudentId = null;
-    let hostTitle = 'جلسة الأستاذ';
-    let teacherPage = 'code';
     let networkMode = 'local';
     let hostCountdownTimer = null;
     let incomingStudentId = null;
     let isIncomingPaused = false;
     let floatingWin = null;
-    let hostSession = null;
     let isFullscreen = false;
     let hideControlsTimer = null;
+    let roomOwnerActive = false;
 
     let outSocket = null;
     let outStream = null;
@@ -85,9 +65,9 @@
     let outQualityTimer = null;
     let outQualityController = null;
     let outgoingGlobal = false;
-    let receiverFound = false;
     let outgoingRequestId = 0;
     let joinedStudentId = null;
+    let outgoingTargetCode = '';
     let isSharingOutgoing = false;
     let isPausedOutgoing = false;
     let outgoingBusy = false;
@@ -99,9 +79,11 @@
     const tileVideos = new Map(); // studentId -> HTMLVideoElement
     const studentCards = new Map(); // studentId -> card elements
 
-    function setStatus(element, message, type = '') {
+    // ---------- helpers ----------
+
+    function setStatus(element, key, type = '', vars) {
         if (!element) return;
-        element.textContent = message;
+        I18n.setText(element, key, vars);
         element.className = `status-text ${type}`;
     }
 
@@ -110,181 +92,145 @@
         return active ? active.dataset.mode : 'local';
     }
 
-    function bindSegmented(element, onChange) {
-        if (!element) return;
+    function bindSegmented(element) {
         element.addEventListener('click', (event) => {
             const button = event.target.closest('button[data-mode]');
             if (!button) return;
             element.querySelectorAll('button[data-mode]').forEach((item) => {
                 item.classList.toggle('active', item === button);
             });
-            if (onChange) onChange(button.dataset.mode);
         });
+    }
+
+    function iceServersFor(global) {
+        return global && hostInfo && Array.isArray(hostInfo.iceServers) ? hostInfo.iceServers : [];
     }
 
     function activeTitle() {
         const selected = hostStudents.find((student) => student.id === selectedStudentId);
-        return selected?.title || hostTitle || 'Lab show';
+        return selected?.title || 'Lab show';
     }
 
-    // ---------- roles ----------
-
-    function openTeacherPage(page) {
-        teacherPage = page === 'broadcasts' ? 'broadcasts' : 'code';
-        dom.codePage.hidden = teacherPage !== 'code';
-        dom.broadcastsPage.hidden = teacherPage !== 'broadcasts';
-        dom.tabCode.classList.toggle('active', teacherPage === 'code');
-        dom.tabBroadcasts.classList.toggle('active', teacherPage === 'broadcasts');
-        dom.tabCode.setAttribute('aria-selected', String(teacherPage === 'code'));
-        dom.tabBroadcasts.setAttribute('aria-selected', String(teacherPage === 'broadcasts'));
+    async function copyText(text, statusElement) {
+        try {
+            await navigator.clipboard.writeText(text);
+            setStatus(statusElement, 'recv.copied', 'ok');
+        } catch (error) {
+            setStatus(statusElement, 'recv.copyFailed', 'err');
+        }
     }
 
-    function setRole(mode) {
-        role = mode === 'teacher' ? 'teacher' : 'student';
-        dom.roleScreen.hidden = true;
-        dom.studentScreen.hidden = role !== 'student';
-        dom.teacherScreen.hidden = role !== 'teacher';
-        if (role === 'teacher') openTeacherPage(hostStudents.length ? 'broadcasts' : 'code');
-        updateViewerLayout();
-        updateTeacherControlUi();
-    }
-
-    function openWorkspace(mode) {
-        dom.roleScreen.hidden = true;
-        setRole(mode);
-    }
-
-    function showRoleScreen() {
-        dom.roleScreen.hidden = false;
-        dom.studentScreen.hidden = true;
-        dom.teacherScreen.hidden = true;
-        document.body.classList.remove('viewer-active');
-    }
-
-    dom.studentStartBtn.addEventListener('click', () => openWorkspace('student'));
-    dom.teacherStartBtn.addEventListener('click', () => openWorkspace('teacher'));
-    dom.backFromStudentBtn.addEventListener('click', showRoleScreen);
-    dom.backFromTeacherBtn.addEventListener('click', showRoleScreen);
+    bindSegmented(dom.networkModeSelect);
+    bindSegmented(dom.pubNetworkMode);
+    dom.langToggle.addEventListener('click', () => I18n.toggle());
+    I18n.onChange(() => {
+        syncOutgoingUi();
+        renderHostSession(hostSession);
+        dom.rosterViewBtn.textContent = t(dom.studentRoster.classList.contains('grid-view') ? 'recv.listView' : 'recv.gridView');
+    });
     dom.rosterViewBtn.addEventListener('click', () => {
         const isGrid = dom.studentRoster.classList.toggle('grid-view');
-        dom.rosterViewBtn.textContent = isGrid ? 'عرض قائمة' : 'عرض شبكي';
-    });
-    dom.tabCode.addEventListener('click', () => openTeacherPage('code'));
-    dom.tabBroadcasts.addEventListener('click', () => openTeacherPage('broadcasts'));
-
-    bindSegmented(dom.studentConnectionMode, (mode) => {
-        dom.globalStudentFields.hidden = mode !== 'global';
-    });
-    bindSegmented(dom.networkModeSelect, (mode) => {
-        dom.globalTeacherFields.hidden = mode !== 'global';
+        dom.rosterViewBtn.dataset.i18n = isGrid ? 'recv.listView' : 'recv.gridView';
+        dom.rosterViewBtn.textContent = t(dom.rosterViewBtn.dataset.i18n);
     });
     dom.titleDisplayBtn.addEventListener('click', () => {
         dom.titleEditor.hidden = !dom.titleEditor.hidden;
         if (!dom.titleEditor.hidden) dom.broadcastTitleInput.focus();
     });
-
-    async function copyText(text, statusElement, successMessage) {
-        try {
-            await navigator.clipboard.writeText(text);
-            if (statusElement) statusElement.textContent = successMessage;
-        } catch (error) {
-            if (statusElement) statusElement.textContent = 'تعذر النسخ؛ حدد النص ونسخه يدوياً.';
-        }
+    dom.copyCodeBtn.addEventListener('click', () => copyText(dom.generatedCode.textContent, dom.hostStatus));
+    dom.copyGlobalLinkBtn.addEventListener('click', () => copyText(dom.globalLinkText.textContent, dom.hostStatus));
+    for (const input of [dom.codeInput, dom.joinCodeInput]) {
+        input.addEventListener('input', () => { input.value = input.value.toUpperCase(); });
     }
-
-    dom.copyCodeBtn.addEventListener('click', () => copyText(
-        dom.generatedCode.textContent, dom.hostStatus, 'تم نسخ الرمز.'
-    ));
-    dom.copyGlobalLinkBtn.addEventListener('click', () => copyText(
-        dom.globalLinkText.textContent, dom.hostStatus, 'تم نسخ رابط الجلسة.'
-    ));
-
-    // ---------- outgoing sharing ----------
-
-    function setOutgoingNotice(message, type = '') {
-        setStatus(dom.outgoingStatus, message, type);
-        if (dom.studentControlStatus) dom.studentControlStatus.textContent = message;
-    }
-
-    function setLiveStatus(message, active = true) {
-        dom.liveStatusBar.hidden = !active;
-        dom.liveStatusText.textContent = message;
-    }
-
-    function syncOutgoingUi(message) {
-        dom.codeCard.hidden = isSharingOutgoing;
-        dom.broadcastCard.hidden = !isSharingOutgoing;
-        if (!isSharingOutgoing) {
-            receiverFound = false;
-            setLiveStatus('', false);
-        }
-        dom.titleDisplayText.textContent = dom.broadcastTitleInput.value || '—';
-        dom.broadcastStatusPill.textContent = isPausedOutgoing ? 'متوقف مؤقتاً' : 'يبث الآن';
-        dom.studentControlToggle.disabled = !isSharingOutgoing || isPausedOutgoing || permissionPending;
-        dom.studentControlToggle.setAttribute('aria-checked', String(isStudentControlEnabled));
-        dom.studentControlToggle.textContent = isStudentControlEnabled
-            ? 'إيقاف السماح بالتحكم بشاشتي'
-            : 'السماح بالتحكم بشاشتي';
-
-        if (message) {
-            dom.studentControlStatus.textContent = message;
-        } else if (isStudentControlEnabled) {
-            dom.studentControlStatus.textContent = 'السماح مفعّل. يمكنك إيقافه في أي وقت.';
-        } else if (isPausedOutgoing) {
-            dom.studentControlStatus.textContent = 'البث متوقف مؤقتاً؛ أعد استئنافه أولاً.';
-        } else if (isSharingOutgoing) {
-            dom.studentControlStatus.textContent = 'التحكم متوقف حتى تسمح به.';
-        } else {
-            dom.studentControlStatus.textContent = 'التحكم متوقف. فعّله بعد بدء البث.';
-        }
-
-        dom.approveCodeBtn.textContent = isSharingOutgoing ? 'إيقاف مشاركة الشاشة' : 'موافقة';
-        dom.pauseBroadcastBtn.textContent = isPausedOutgoing ? 'استئناف البث' : 'إيقاف مؤقت';
-        dom.pauseBroadcastBtn.disabled = !isSharingOutgoing;
-        dom.stopBroadcastBtn.disabled = !isSharingOutgoing;
-        dom.selfShareBtn.textContent = isSharingOutgoing ? 'إيقاف مشاركة شاشتي' : 'مشاركة شاشتي أيضاً';
-        dom.approveCodeBtn.disabled = outgoingBusy;
-        dom.selfShareBtn.disabled = outgoingBusy;
-        api.setOutgoingState({
-            sharing: isSharingOutgoing,
-            paused: isPausedOutgoing
+    // Pasting a link fills in the code too.
+    function fillCodeFromLink(linkInput, codeInput) {
+        linkInput.addEventListener('input', () => {
+            const parsed = Links.parseLink(linkInput.value);
+            if (parsed && !codeInput.value.trim()) codeInput.value = parsed.code;
         });
     }
+    fillCodeFromLink(dom.sendLinkInput, dom.codeInput);
+    fillCodeFromLink(dom.joinLinkInput, dom.joinCodeInput);
 
-    function setLocalPermission(enabled, message) {
+    // ---------- outgoing (send my screen to one receiver) ----------
+
+    function setOutgoingNotice(key, type = '') {
+        setStatus(dom.outgoingStatus, key, type);
+        I18n.setText(dom.studentControlStatus, key);
+    }
+
+    function setLiveStatus(key) {
+        dom.liveStatusBar.hidden = !key;
+        if (key) I18n.setText(dom.liveStatusText, key);
+    }
+
+    function syncOutgoingUi(messageKey) {
+        dom.codeCard.hidden = isSharingOutgoing;
+        dom.broadcastCard.hidden = !isSharingOutgoing;
+        if (!isSharingOutgoing) setLiveStatus(null);
+        dom.titleDisplayText.textContent = dom.broadcastTitleInput.value || '—';
+        I18n.setText(dom.broadcastStatusPill, isPausedOutgoing ? 'send.paused' : 'send.live');
+        dom.studentIdentity.textContent = joinedStudentId
+            ? `${t('send.target', { code: outgoingTargetCode })} · ${joinedStudentId}` : '';
+
+        dom.studentControlToggle.hidden = outgoingGlobal;
+        dom.studentControlToggle.disabled = !isSharingOutgoing || isPausedOutgoing || permissionPending;
+        dom.studentControlToggle.setAttribute('aria-checked', String(isStudentControlEnabled));
+        I18n.setText(dom.studentControlToggle, isStudentControlEnabled ? 'control.revoke' : 'control.allow');
+
+        let statusKey = messageKey;
+        if (!statusKey) {
+            if (outgoingGlobal && isSharingOutgoing) statusKey = 'control.globalOff';
+            else if (isStudentControlEnabled) statusKey = 'control.on';
+            else if (isPausedOutgoing) statusKey = 'control.pausedHint';
+            else statusKey = 'control.off';
+        }
+        I18n.setText(dom.studentControlStatus, statusKey);
+
+        I18n.setText(dom.pauseBroadcastBtn, isPausedOutgoing ? 'send.resume' : 'send.pause');
+        dom.pauseBroadcastBtn.disabled = !isSharingOutgoing;
+        dom.stopBroadcastBtn.disabled = !isSharingOutgoing;
+        dom.approveCodeBtn.disabled = outgoingBusy || roomOwnerActive;
+        dom.pubStartBtn.disabled = isSharingOutgoing || outgoingBusy;
+        api.setOutgoingState({ sharing: isSharingOutgoing, paused: isPausedOutgoing });
+    }
+
+    function setLocalPermission(enabled, messageKey) {
         isStudentControlEnabled = Boolean(enabled);
         if (!isStudentControlEnabled) {
             permissionRequestId += 1;
             permissionPending = false;
         }
         api.setStudentControlEnabled(isStudentControlEnabled);
-        syncOutgoingUi(message);
+        syncOutgoingUi(messageKey);
     }
 
     function requestStudentControl(enabled) {
         if (!enabled) {
             if (outSocket && outSocket.connected) outSocket.emit('student:permission', { enabled: false });
-            setLocalPermission(false, 'تم إيقاف السماح بالتحكم.');
+            setLocalPermission(false, 'control.revoked');
+            return;
+        }
+        if (outgoingGlobal) {
+            syncOutgoingUi('control.globalOff');
             return;
         }
         if (isStudentControlEnabled || permissionPending) return;
         if (!isSharingOutgoing || isPausedOutgoing || !outSocket || !outSocket.connected) {
-            syncOutgoingUi('ابدأ بث الشاشة أولاً قبل تفعيل التحكم.');
+            syncOutgoingUi('control.startFirst');
             return;
         }
-
         const requestId = ++permissionRequestId;
         permissionPending = true;
-        syncOutgoingUi('جارٍ تفعيل السماح...');
+        syncOutgoingUi('control.pending');
         outSocket.timeout(3000).emit('student:permission', { enabled: true }, (error, response) => {
             if (requestId !== permissionRequestId) return;
             permissionPending = false;
             if (error || !response || !response.ok) {
-                setLocalPermission(false,
-                    (response && response.message) || 'تعذر تفعيل السماح؛ تحقق من اتصال الشبكة.');
+                setLocalPermission(false, I18n.errorKey(response, 'control.failed'));
                 return;
             }
-            setLocalPermission(true, 'السماح مفعّل. يمكنك إيقافه في أي وقت.');
+            setLocalPermission(true, 'control.on');
         });
     }
 
@@ -299,9 +245,6 @@
         const track = outStream.getVideoTracks()[0];
         if (track) track.enabled = !isPausedOutgoing;
         outSocket.emit(isPausedOutgoing ? 'student:pause' : 'student:resume');
-        setOutgoingNotice(
-            isPausedOutgoing ? 'البث متوقف مؤقتاً' : 'جاري بث شاشتك الآن',
-            isPausedOutgoing ? '' : 'ok');
         syncOutgoingUi();
     }
 
@@ -330,16 +273,14 @@
         stopOutgoingViewing();
         const requestId = outgoingRequestId;
         const socket = outSocket;
-        const pc = new RTCPeerConnection({ iceServers: [] });
+        const pc = new RTCPeerConnection({ iceServers: iceServersFor(outgoingGlobal) });
         outPC = pc;
         outStream.getTracks().forEach((track) => pc.addTrack(track, outStream));
 
         const sender = pc.getSenders().find((item) => item.track && item.track.kind === 'video');
         const qualityApi = window.AdaptiveQuality;
         if (sender && qualityApi && qualityApi.createQualityController) {
-            outQualityController = qualityApi.createQualityController({
-                mode: outgoingGlobal ? 'global' : 'local'
-            });
+            outQualityController = qualityApi.createQualityController({ mode: outgoingGlobal ? 'global' : 'local' });
             const applyQuality = async (result) => {
                 try {
                     const params = sender.getParameters();
@@ -348,7 +289,7 @@
                     params.encodings[0].scaleResolutionDownBy = result.scaleResolutionDownBy;
                     await sender.setParameters(params);
                 } catch (error) {
-                    console.error('تعذر تطبيق جودة البث:', error);
+                    console.error('quality', error);
                 }
             };
             applyQuality(outQualityController.state);
@@ -372,7 +313,7 @@
                     const result = outQualityController.update({ availableBitrate, lossRatio, jitterMs });
                     if (result.changed) await applyQuality(result);
                 } catch (error) {
-                    console.error('تعذر قراءة إحصاءات البث:', error);
+                    console.error('stats', error);
                 }
             }, 3000);
         }
@@ -391,7 +332,7 @@
             }
             socket.emit('student:offer', { studentId, offer });
         } catch (error) {
-            console.error('تعذر إنشاء عرض البث:', error);
+            console.error('offer', error);
         }
     }
 
@@ -414,27 +355,28 @@
         isSharingOutgoing = false;
         isPausedOutgoing = false;
         outgoingBusy = false;
+        outgoingGlobal = false;
         permissionPending = false;
         permissionRequestId += 1;
         setLocalPermission(false);
         syncOutgoingUi();
     }
 
-    function attachOutgoingHandlers(socket, code, broadcastTitle, statusElement, globalIdentity = null) {
+    function attachOutgoingHandlers(socket, code, broadcastTitle, identity) {
         socket.on('connect', () => {
             socket.timeout(5000).emit('student:join', {
                 code,
                 title: broadcastTitle,
-                username: globalIdentity ? globalIdentity.username : undefined,
-                token: globalIdentity ? globalIdentity.token : undefined,
+                username: identity ? identity.username : undefined,
+                token: identity ? identity.token : undefined,
                 protocolVersion: window.LabShowProtocol ? window.LabShowProtocol.PROTOCOL_VERSION : undefined
             }, async (error, response) => {
                 if (error || !response || !response.ok) {
                     stopOutgoingShare(false);
-                    setStatus(statusElement,
-                        (response && response.message) || 'تعذر الانضمام إلى جلسة الأستاذ.', 'err');
+                    setStatus(dom.outgoingStatus, I18n.errorKey(response, 'send.joinFailed'), 'err');
                     return;
                 }
+                outgoingGlobal = outgoingGlobal || response.networkMode === 'global';
                 try {
                     outStream = await navigator.mediaDevices.getDisplayMedia({
                         video: {
@@ -450,32 +392,29 @@
                         return;
                     }
                     joinedStudentId = response.studentId;
-                    const finalTitle = (broadcastTitle || '').trim() || 'بثك';
-                    dom.joinTitleInput.value = finalTitle;
+                    outgoingTargetCode = code;
+                    const finalTitle = (broadcastTitle || '').trim() || 'Lab show';
                     dom.broadcastTitleInput.value = finalTitle;
-                    dom.titleDisplayText.textContent = finalTitle;
                     dom.titleEditor.hidden = true;
-                    dom.studentIdentity.textContent = `${finalTitle} · ${joinedStudentId}`;
                     socket.emit('student:start');
                     isSharingOutgoing = true;
                     isPausedOutgoing = false;
                     outgoingBusy = false;
                     syncOutgoingUi();
-                    receiverFound = false;
-                    setLiveStatus('البث يعمل الآن · بانتظار المستقبل');
-                    showRoleScreen();
+                    setStatus(dom.outgoingStatus, 'send.live', 'ok');
+                    setLiveStatus('send.liveWaiting');
                     outStream.getVideoTracks().forEach((track) => {
                         track.addEventListener('ended', () => {
                             if (outSocket === socket && isSharingOutgoing) {
                                 stopOutgoingShare(true);
-                                setStatus(statusElement, 'تم إيقاف مشاركة الشاشة.');
+                                setStatus(dom.outgoingStatus, 'send.stopped');
                             }
                         }, { once: true });
                     });
                 } catch (captureError) {
-                    console.error('تعذر التقاط الشاشة:', captureError);
+                    console.error('capture', captureError);
                     stopOutgoingShare(true);
-                    setStatus(statusElement, 'تعذر التقاط الشاشة.', 'err');
+                    setStatus(dom.outgoingStatus, 'send.captureFailed', 'err');
                 }
             });
         });
@@ -483,220 +422,206 @@
         socket.on('connect_error', () => {
             if (outSocket !== socket) return;
             stopOutgoingShare(false);
-            setStatus(statusElement, 'تعذر الاتصال بجهاز الأستاذ داخل الشبكة.', 'err');
+            setStatus(dom.outgoingStatus, 'send.connectFailed', 'err');
         });
-
         socket.on('preview:start', ({ studentId }) => {
             if (studentId === joinedStudentId) startOutgoingViewing(studentId).catch(console.error);
         });
         socket.on('preview:stop', ({ studentId }) => {
             if (studentId === joinedStudentId) stopOutgoingViewing();
         });
-
         socket.on('webrtc:answer', async ({ answer }) => {
             if (!outPC || outPC.remoteDescription) return;
             try {
                 await outPC.setRemoteDescription(new RTCSessionDescription(answer));
-                for (const candidate of outPendingIce) {
-                    await outPC.addIceCandidate(new RTCIceCandidate(candidate));
-                }
+                for (const candidate of outPendingIce) await outPC.addIceCandidate(new RTCIceCandidate(candidate));
                 outPendingIce = [];
             } catch (error) {
-                console.error('خطأ في إجابة البث:', error);
+                console.error('answer', error);
             }
         });
-
         socket.on('webrtc:ice', async ({ candidate }) => {
             try {
                 if (outPC && outPC.remoteDescription) await outPC.addIceCandidate(new RTCIceCandidate(candidate));
                 else outPendingIce.push(candidate);
             } catch (error) {
-                console.error('خطأ في مرشح الشبكة:', error);
+                console.error('ice', error);
             }
         });
-
         socket.on('control:key', async ({ key }) => {
-            if (!isStudentControlEnabled || !isSharingOutgoing || isPausedOutgoing) return;
+            if (outgoingGlobal || !isStudentControlEnabled || !isSharingOutgoing || isPausedOutgoing) return;
             try {
                 const result = await api.applyControlKey(key);
-                if (!result.ok) syncOutgoingUi(result.message || 'تعذر تنفيذ مفتاح التحكم.');
+                if (!result.ok) syncOutgoingUi('control.keyFailed');
             } catch (error) {
-                console.error('فشل التحكم بالمفاتيح:', error);
-                syncOutgoingUi('تعذر تنفيذ مفتاح التحكم على هذا الجهاز.');
+                syncOutgoingUi('control.keyFailed');
             }
         });
-
-        socket.on('student:selected', () => {
-            receiverFound = true;
-            setLiveStatus('البث يعمل الآن · تم العثور على المستقبل');
-        });
-
-        socket.on('session:expiring', () => {
-            setLiveStatus('البث سينتهي خلال 5 دقائق');
-            setOutgoingNotice('البث سينتهي خلال 5 دقائق.', 'err');
-        });
-
+        socket.on('student:selected', () => setLiveStatus('send.liveSeen'));
+        socket.on('session:expiring', () => setOutgoingNotice('send.expiring', 'err'));
         socket.on('control:permission', ({ enabled }) => {
-            if (!enabled && isStudentControlEnabled) setLocalPermission(false, 'تم سحب السماح بالتحكم.');
+            if (!enabled && isStudentControlEnabled) setLocalPermission(false, 'control.withdrawn');
         });
-
         socket.on('host:pause', ({ paused }) => {
             setOutgoingPaused(paused);
-            setOutgoingNotice(paused
-                ? 'أوقف المستقبل بثك مؤقتاً.'
-                : 'استأنف المستقبل عرض بثك.', paused ? '' : 'ok');
+            setOutgoingNotice(paused ? 'send.pausedByReceiver' : 'send.resumedByReceiver', paused ? '' : 'ok');
         });
-
-        socket.on('session:ended', ({ message }) => {
+        socket.on('session:ended', () => {
             stopOutgoingShare(false);
-            setStatus(statusElement, message || 'تم إيقاف الجلسة.', 'err');
+            setStatus(dom.outgoingStatus, 'send.sessionEnded', 'err');
         });
-
         socket.on('host:stop', () => {
             stopOutgoingShare(true);
-            setStatus(statusElement, 'تم إيقاف بثك من قِبل الأستاذ.', 'err');
+            setStatus(dom.outgoingStatus, 'send.stoppedByReceiver', 'err');
         });
-
         socket.on('disconnect', () => {
             if (outSocket !== socket) return;
             if (isSharingOutgoing || outgoingBusy) {
                 stopOutgoingShare(false);
-                setStatus(statusElement, 'انقطع الاتصال بجهاز الأستاذ.', 'err');
+                setStatus(dom.outgoingStatus, 'send.disconnected', 'err');
             }
         });
     }
 
-    async function beginOutgoingShare(code, title, target, statusElement, targetIdentity = null) {
-        if (!hasBridge) {
-            setStatus(statusElement, 'شغّل تطبيق Lab show المكتبي؛ فتح الملف في المتصفح لا يدعم مشاركة الشاشة.', 'err');
-            return;
-        }
-        let cleanCode = String(code || '').trim();
-        if (!/^(?:\d{6}|[A-Z2-9]{12})$/.test(cleanCode)) {
-            setStatus(statusElement, 'أدخل رمز البث المكوّن من 12 خانة.', 'err');
-            return;
-        }
+    async function beginOutgoingShare() {
+        if (!hasBridge) return setStatus(dom.outgoingStatus, 'send.desktopOnly', 'err');
         if (outgoingBusy) return;
+        let code = dom.codeInput.value.trim().toUpperCase();
+        const rawLink = dom.sendLinkInput.value.trim();
+        let target = null;
+        let identity = null;
+        let global = false;
+
+        if (rawLink) {
+            const parsed = Links.parseLink(rawLink);
+            if (!parsed) return setStatus(dom.outgoingStatus, 'send.badLink', 'err');
+            if (parsed.kind === 'room') return setStatus(dom.outgoingStatus, 'send.roomLink', 'err');
+            if (code && code !== parsed.code) return setStatus(dom.outgoingStatus, 'send.codeMismatch', 'err');
+            code = parsed.code;
+            dom.codeInput.value = code;
+            target = { ip: parsed.host, port: parsed.port };
+            global = parsed.mode === 'global';
+            if (global) identity = { username: parsed.username, token: parsed.token };
+        }
+        if (!Links.CODE_PATTERN.test(code)) return setStatus(dom.outgoingStatus, 'send.badCode', 'err');
+
+        const allowed = await api.canStartOutgoing();
+        if (!allowed || !allowed.ok) return setStatus(dom.outgoingStatus, 'send.roomActive', 'err');
 
         outgoingBusy = true;
         syncOutgoingUi();
-        let resolvedTarget = target;
-        let globalIdentity = targetIdentity;
-        outgoingGlobal = Boolean(targetIdentity) || segmentedValue(dom.studentConnectionMode) === 'global';
-        if (!resolvedTarget && segmentedValue(dom.studentConnectionMode) === 'global') {
-            const rawLink = dom.globalLinkInput.value.trim();
-            if (!rawLink) {
+        if (!target) {
+            setStatus(dom.outgoingStatus, 'send.searching');
+            try {
+                target = await api.findHostByCode(code);
+            } catch (error) {
+                target = null;
+            }
+            if (!target || !target.port) {
                 outgoingBusy = false;
                 syncOutgoingUi();
-                setStatus(statusElement, 'أدخل رابط الجلسة العالمية الذي أرسله الأستاذ.', 'err');
-                return;
-            }
-            let parsedLink = null;
-            try {
-                parsedLink = new URL(rawLink);
-            } catch (error) {
-                console.error('رابط الجلسة غير صالح:', error);
-            }
-            const linkCode = parsedLink ? parsedLink.searchParams.get('c') || '' : '';
-            const username = parsedLink ? parsedLink.searchParams.get('u') || '' : '';
-            const endpoint = parsedLink ? parsedLink.searchParams.get('e') || '' : '';
-            const token = parsedLink ? parsedLink.searchParams.get('t') || '' : '';
-            const match = /^([^:]+):(\d{2,5})$/.exec(endpoint);
-            if (!/^(?:\d{6}|[A-Z2-9]{12})$/.test(linkCode) || !username || !token || !match) {
-                outgoingBusy = false;
-                syncOutgoingUi();
-                setStatus(statusElement, 'رابط الجلسة العالمية غير صالح.', 'err');
-                return;
-            }
-            cleanCode = linkCode;
-            dom.codeInput.value = linkCode;
-            dom.globalUsernameInput.value = username;
-            resolvedTarget = { ip: match[1], port: Number(match[2]) };
-            globalIdentity = { username, token };
-        }
-        setStatus(statusElement,
-            resolvedTarget ? 'جارٍ الاتصال بخادم البث...' : 'جارٍ البحث عن صاحب الرمز...');
-        if (!resolvedTarget) {
-            try {
-                resolvedTarget = await api.findHostByCode(cleanCode);
-            } catch (error) {
-                console.error('فشل اكتشاف الأستاذ:', error);
+                return setStatus(dom.outgoingStatus, 'send.notFound', 'err');
             }
         }
-        if (!resolvedTarget || !resolvedTarget.port) {
-            outgoingBusy = false;
-            syncOutgoingUi();
-            setStatus(statusElement, 'لم يُعثر على رمز الأستاذ في الشبكة المحلية.', 'err');
-            return;
-        }
-
+        setStatus(dom.outgoingStatus, 'send.connecting');
         stopOutgoingShare(true);
         outgoingBusy = true;
+        outgoingGlobal = global;
         syncOutgoingUi();
-        outSocket = io(`http://${resolvedTarget.ip}:${resolvedTarget.port}`, {
+        outSocket = io(`http://${target.ip}:${target.port}`, {
             timeout: 5000,
             reconnectionDelay: 500,
             reconnectionDelayMax: 2000
         });
-        attachOutgoingHandlers(
-            outSocket, cleanCode, broadcastTitle || dom.joinTitleInput.value, statusElement, globalIdentity
-        );
+        attachOutgoingHandlers(outSocket, code, dom.joinTitleInput.value, identity);
     }
 
-    dom.approveCodeBtn.addEventListener('click', () => {
-        if (isSharingOutgoing) {
-            stopOutgoingShare(true);
-            setOutgoingNotice('تم إيقاف مشاركة الشاشة.');
-            return;
-        }
-        beginOutgoingShare(dom.codeInput.value, dom.joinTitleInput.value, null, dom.outgoingStatus);
-    });
-
+    dom.approveCodeBtn.addEventListener('click', () => beginOutgoingShare());
     dom.cancelCodeBtn.addEventListener('click', () => {
         if (isSharingOutgoing) stopOutgoingShare(true);
         dom.codeInput.value = '';
-        setOutgoingNotice('أدخل رمز الأستاذ لبدء مشاركة شاشتك');
+        dom.sendLinkInput.value = '';
+        setStatus(dom.outgoingStatus, 'send.ready');
     });
-
-    dom.codeInput.addEventListener('input', () => {
-        dom.codeInput.value = dom.codeInput.value.toUpperCase();
-    });
-
     dom.codeInput.addEventListener('keydown', (event) => {
         if (event.key === 'Enter') dom.approveCodeBtn.click();
-        if (event.key === 'Escape') dom.cancelCodeBtn.click();
     });
-
     dom.titleUpdateBtn.addEventListener('click', () => {
         if (!outSocket || !outSocket.connected || !isSharingOutgoing) return;
-        const title = dom.broadcastTitleInput.value;
         dom.titleUpdateBtn.disabled = true;
-        outSocket.timeout(3000).emit('student:update-title', { title }, (error, response) => {
+        outSocket.timeout(3000).emit('student:update-title', { title: dom.broadcastTitleInput.value }, (error, response) => {
             dom.titleUpdateBtn.disabled = false;
             if (error || !response || !response.ok) {
-                setOutgoingNotice((response && response.message) || 'تعذر تحديث عنوان البث.', 'err');
-                return;
+                return setOutgoingNotice(I18n.errorKey(response, 'send.titleFailed'), 'err');
             }
             dom.broadcastTitleInput.value = response.title;
             dom.titleDisplayText.textContent = response.title;
             dom.titleEditor.hidden = true;
-            setOutgoingNotice('تم تحديث عنوان البث لدى الأستاذ.', 'ok');
+            setOutgoingNotice('send.titleUpdated', 'ok');
         });
     });
-
     dom.pauseBroadcastBtn.addEventListener('click', toggleOutgoingPause);
     dom.stopBroadcastBtn.addEventListener('click', () => {
         if (!isSharingOutgoing) return;
         stopOutgoingShare(true);
-        setOutgoingNotice('تم إيقاف البث.');
+        setStatus(dom.outgoingStatus, 'send.stopped');
     });
-
     api.onTrayTogglePause(toggleOutgoingPause);
     api.onTrayToggleControl(() => requestStudentControl(!isStudentControlEnabled));
     api.onTrayStopBroadcast(() => {
         if (isSharingOutgoing) stopOutgoingShare(true);
-        dom.codeInput.value = '';
-        setOutgoingNotice('تم إيقاف البث.');
+        setStatus(dom.outgoingStatus, 'send.stopped');
+    });
+
+    // ---------- public broadcast ----------
+
+    dom.pubStartBtn.addEventListener('click', async () => {
+        if (!hasBridge) return setStatus(dom.pubStatus, 'send.desktopOnly', 'err');
+        if (isSharingOutgoing || outgoingBusy) return setStatus(dom.pubStatus, 'pub.sendingActive', 'err');
+        const result = await api.openRoom({
+            role: 'owner',
+            lang: I18n.lang,
+            mode: segmentedValue(dom.pubNetworkMode),
+            title: dom.pubTitleInput.value,
+            name: dom.pubNameInput.value,
+            duration: dom.pubDurationSelect.value
+        });
+        if (!result || !result.ok) return setStatus(dom.pubStatus, I18n.errorKey(result, 'pub.sendingActive'), 'err');
+        setStatus(dom.pubStatus, 'pub.opened', 'ok');
+    });
+
+    api.onRoomOwnerState(({ active }) => {
+        roomOwnerActive = Boolean(active);
+        if (roomOwnerActive) {
+            setStatus(dom.outgoingStatus, 'send.roomActive');
+            setStatus(dom.pubStatus, 'pub.ownerActive', 'ok');
+        } else {
+            if (!isSharingOutgoing) setStatus(dom.outgoingStatus, 'send.ready');
+            delete dom.pubStatus.dataset.i18n;
+            dom.pubStatus.textContent = '';
+        }
+        syncOutgoingUi();
+    });
+
+    dom.joinRoomBtn.addEventListener('click', async () => {
+        if (!hasBridge) return setStatus(dom.joinStatus, 'send.desktopOnly', 'err');
+        const parsed = Links.parseLink(dom.joinLinkInput.value);
+        if (!parsed) return setStatus(dom.joinStatus, 'join.badLink', 'err');
+        if (parsed.kind !== 'room') return setStatus(dom.joinStatus, 'join.notRoom', 'err');
+        const code = dom.joinCodeInput.value.trim().toUpperCase() || parsed.code;
+        if (code !== parsed.code) return setStatus(dom.joinStatus, 'send.codeMismatch', 'err');
+        const result = await api.openRoom({
+            role: 'viewer',
+            lang: I18n.lang,
+            host: parsed.host,
+            port: parsed.port,
+            code,
+            token: parsed.token,
+            mode: parsed.mode,
+            name: dom.joinNameInput.value
+        });
+        if (!result || !result.ok) return setStatus(dom.joinStatus, I18n.errorKey(result, 'room.joinFailed'), 'err');
+        setStatus(dom.joinStatus, 'pub.opened', 'ok');
     });
 
     // ---------- incoming broadcasts ----------
@@ -752,30 +677,28 @@
     }
 
     function updateViewerLayout() {
-        const shouldShow = role === 'teacher' && Boolean(dom.remoteVideo.srcObject);
+        const shouldShow = Boolean(dom.remoteVideo.srcObject);
         document.body.classList.toggle('viewer-active', shouldShow);
         dom.videoPlaceholder.hidden = shouldShow;
         dom.receiverPauseBtn.textContent = isIncomingPaused ? '▶' : '⏸';
-        dom.viewerTitle.textContent = shouldShow ? `البث الحالي: ${activeTitle()}` : '';
+        if (shouldShow) I18n.setText(dom.viewerTitle, 'recv.current', { title: activeTitle() });
+        else dom.viewerTitle.textContent = '';
     }
 
     function updateTeacherControlUi() {
         const selected = hostStudents.find((student) => student.id === selectedStudentId);
-        const hasView = role === 'teacher' && Boolean(dom.remoteVideo.srcObject);
+        const hasView = Boolean(dom.remoteVideo.srcObject);
+        const global = networkMode === 'global';
         dom.teacherControlsCard.hidden = !hasView;
-        const canSend = hasView && Boolean(selected && selected.controlEnabled) &&
+        const canSend = hasView && !global && Boolean(selected && selected.controlEnabled) &&
             !isIncomingPaused && !selected?.isPaused;
         dom.remoteKeyButtons.forEach((button) => { button.disabled = !canSend; });
-
-        if (!hasView) {
-            dom.teacherControlStatus.textContent = 'بانتظار بث الشاشة';
-        } else if (selected?.isPaused || isIncomingPaused) {
-            dom.teacherControlStatus.textContent = 'البث متوقف مؤقتاً؛ التحكم متوقف';
-        } else if (selected && selected.controlEnabled) {
-            dom.teacherControlStatus.textContent = 'الطالب سمح بالتحكم';
-        } else {
-            dom.teacherControlStatus.textContent = 'بانتظار موافقة الطالب';
-        }
+        let key = 'keys.waitingApproval';
+        if (!hasView) key = 'keys.waitingView';
+        else if (global) key = 'keys.global';
+        else if (selected?.isPaused || isIncomingPaused) key = 'keys.paused';
+        else if (selected && selected.controlEnabled) key = 'keys.allowed';
+        I18n.setText(dom.teacherControlStatus, key);
     }
 
     function captureFrozenFrame(sourceVideo, canvas) {
@@ -788,21 +711,18 @@
     function applyIncomingFreeze(paused, studentId) {
         if (studentId && studentId !== selectedStudentId) return;
         isIncomingPaused = Boolean(paused);
+        const floatingCanvas = floatingWin && !floatingWin.closed
+            ? floatingWin.document.getElementById('pipFreezeCanvas') : null;
         if (isIncomingPaused) {
             captureFrozenFrame(dom.remoteVideo, dom.freezeCanvas);
             dom.freezeCanvas.classList.add('active');
-            if (floatingWin && !floatingWin.closed) {
-                const video = floatingWin.document.getElementById('pipVideo');
-                const canvas = floatingWin.document.getElementById('pipFreezeCanvas');
-                captureFrozenFrame(video || dom.remoteVideo, canvas);
-                if (canvas) canvas.style.display = 'block';
+            if (floatingCanvas) {
+                captureFrozenFrame(floatingWin.document.getElementById('pipVideo') || dom.remoteVideo, floatingCanvas);
+                floatingCanvas.style.display = 'block';
             }
         } else {
             dom.freezeCanvas.classList.remove('active');
-            if (floatingWin && !floatingWin.closed) {
-                const canvas = floatingWin.document.getElementById('pipFreezeCanvas');
-                if (canvas) canvas.style.display = 'none';
-            }
+            if (floatingCanvas) floatingCanvas.style.display = 'none';
         }
         updateTeacherControlUi();
     }
@@ -810,7 +730,6 @@
     function createStudentCard(student) {
         const card = document.createElement('div');
         card.className = 'student-card';
-
         const preview = document.createElement('div');
         preview.className = 'tile-preview';
         const video = document.createElement('video');
@@ -820,7 +739,6 @@
         const badge = document.createElement('span');
         badge.className = 'tile-badge';
         preview.append(video, badge);
-
         const info = document.createElement('div');
         info.className = 'tile-info';
         const title = document.createElement('div');
@@ -828,7 +746,6 @@
         const status = document.createElement('div');
         status.className = 'tile-status';
         info.append(title, status);
-
         const actions = document.createElement('div');
         actions.className = 'card-actions';
         const selectBtn = document.createElement('button');
@@ -837,16 +754,14 @@
         const stopBtn = document.createElement('button');
         stopBtn.className = 'stop-btn';
         stopBtn.type = 'button';
-        stopBtn.textContent = 'إيقاف';
         actions.append(selectBtn, stopBtn);
-
         card.append(preview, info, actions);
+
         selectBtn.addEventListener('click', () => {
             if (!inSocket || !inSocket.connected) return;
             inSocket.timeout(3000).emit('host:select', { studentId: student.id }, (error, response) => {
                 if (error || !response || !response.ok) {
-                    setStatus(dom.hostStatus,
-                        (response && response.message) || 'تعذر فتح بث الطالب.', 'err');
+                    setStatus(dom.hostStatus, I18n.errorKey(response, 'card.openFailed'), 'err');
                 }
             });
         });
@@ -854,13 +769,11 @@
             if (!inSocket || !inSocket.connected) return;
             inSocket.timeout(3000).emit('host:stop-student', { studentId: student.id }, (error, response) => {
                 if (error || !response || !response.ok) {
-                    setStatus(dom.hostStatus,
-                        (response && response.message) || 'تعذر إيقاف بث الطالب.', 'err');
+                    setStatus(dom.hostStatus, I18n.errorKey(response, 'card.stopFailed'), 'err');
                 }
             });
         });
-
-        return { card, video, badge, title, status, selectBtn };
+        return { card, video, badge, title, status, selectBtn, stopBtn };
     }
 
     function renderStudentRoster(students) {
@@ -873,7 +786,6 @@
                 tileVideos.delete(id);
             }
         }
-
         students.forEach((student) => {
             let refs = studentCards.get(student.id);
             if (!refs) {
@@ -881,27 +793,28 @@
                 studentCards.set(student.id, refs);
                 tileVideos.set(student.id, refs.video);
             }
-            refs.video.srcObject = (incoming.get(student.id) || {}).stream || null;
+            const stream = (incoming.get(student.id) || {}).stream || null;
+            if (refs.video.srcObject !== stream) refs.video.srcObject = stream;
             refs.badge.textContent = student.id;
-            refs.title.textContent = student.title;
-            refs.status.textContent = student.isPaused
-                ? 'متوقف مؤقتاً'
+            refs.title.textContent = student.title || t('card.device', { id: student.id });
+            I18n.setText(refs.status, student.isPaused
+                ? 'card.paused'
                 : student.isSharing
-                    ? (student.id === selectedStudentId ? 'البث محدد للعرض' : 'البث متاح')
-                    : 'متصل - بانتظار بدء المشاركة';
+                    ? (student.id === selectedStudentId ? 'card.selected' : 'card.available')
+                    : 'card.connected');
             refs.card.classList.toggle('selected', student.id === selectedStudentId);
             refs.selectBtn.disabled = !student.isSharing || student.isPaused;
-            refs.selectBtn.textContent = student.id === selectedStudentId ? 'محدد' : 'عرض';
+            I18n.setText(refs.selectBtn, student.id === selectedStudentId ? 'card.shown' : 'card.view');
+            I18n.setText(refs.stopBtn, 'card.stop');
             if (!refs.card.isConnected) dom.studentRoster.appendChild(refs.card);
         });
-
         dom.emptyRoster.hidden = students.length > 0;
     }
 
     function updateHostTimer(expiresAt) {
         if (hostCountdownTimer) clearInterval(hostCountdownTimer);
         if (!expiresAt) {
-            dom.hostTimer.textContent = 'بدون مدة';
+            I18n.setText(dom.hostTimer, 'recv.noLimit');
             return;
         }
         const tick = () => {
@@ -923,91 +836,61 @@
     function renderHostSession(session) {
         hostSession = session || null;
         if (!session) {
-            hostTitle = 'جلسة الأستاذ';
             networkMode = 'local';
             hostStudents = [];
             selectedStudentId = null;
-            dom.rosterCard.hidden = true;
             dom.generatedBox.hidden = true;
             dom.codeSettingsCard.hidden = false;
-            dom.generatedTitle.textContent = '';
-            dom.globalLinkBox.hidden = true;
-            dom.globalLinkText.textContent = '';
             if (hostCountdownTimer) clearInterval(hostCountdownTimer);
             clearIncomingViewer();
             renderStudentRoster([]);
-            if (role === 'teacher') openTeacherPage('code');
             return;
         }
-
-        hostTitle = session.title || 'جلسة الأستاذ';
         networkMode = session.networkMode || 'local';
         hostStudents = session.students || [];
         selectedStudentId = session.selectedStudentId || null;
-        dom.rosterCard.hidden = false;
         dom.codeSettingsCard.hidden = true;
         dom.generatedBox.hidden = false;
         dom.generatedCode.textContent = session.code;
-        dom.generatedTitle.textContent = networkMode === 'global'
-            ? 'شبكة عالمية'
-            : 'شبكة محلية';
-        dom.globalLinkBox.hidden = !(networkMode === 'global' && session.globalUrl);
-        if (dom.globalLinkBox.hidden) {
-            dom.globalLinkText.textContent = '';
-            dom.globalTokenText.textContent = '';
-        } else {
-            dom.globalLinkText.textContent = session.globalUrl;
-            try {
-                dom.globalTokenText.textContent =
-                    new URL(session.globalUrl).searchParams.get('t') || '';
-            } catch (error) {
-                dom.globalTokenText.textContent = '';
-            }
-        }
+        dom.globalLinkText.textContent = session.globalUrl || '';
+        I18n.setText(dom.generatedTitle, networkMode === 'global' ? 'recv.modeGlobal' : 'recv.modeLocal');
+        const reachKey = `reach.${session.reachability || 'lan'}`;
+        dom.reachNote.hidden = !t(reachKey);
+        dom.reachNote.className = `reach-note ${session.reachability === 'internet' ? 'ok' : 'warn'}`;
+        I18n.setText(dom.reachNote, reachKey);
         updateHostTimer(session.expiresAt);
         renderStudentRoster(hostStudents);
-        if (role === 'teacher' && hostStudents.length && teacherPage === 'code') {
-            openTeacherPage('broadcasts');
-        }
 
         const selected = hostStudents.find((student) => student.id === selectedStudentId);
         if (selected && (selected.isPaused || selected.isSharing)) {
             setViewerStudent(selected.id);
             if (selected.isPaused) applyIncomingFreeze(true, selected.id);
             else if (isIncomingPaused) applyIncomingFreeze(false, selected.id);
-            dom.hostStateText.textContent = selected.isPaused
-                ? 'متوقف مؤقتاً (صورة مجمدة)'
-                : 'يبث الآن';
+            I18n.setText(dom.hostStateText, selected.isPaused ? 'recv.frozen' : 'recv.viewing');
         } else {
             if (incomingStudentId) setViewerStudent(null);
-            dom.hostStateText.textContent = hostStudents.length
-                ? 'متصلون - اختر طالباً'
-                : 'بانتظار الطلاب';
+            I18n.setText(dom.hostStateText, hostStudents.length ? 'recv.pick' : 'recv.waiting');
         }
         updateViewerLayout();
         updateTeacherControlUi();
     }
 
-    // ---------- WebRTC receiver ----------
-
     async function handleWebrtcOffer(studentId, offer) {
         const student = hostStudents.find((item) => item.id === studentId);
         if (!student || !student.isSharing || student.isPaused || !inSocket) return;
         closeIncomingPeer(studentId);
-        const pc = new RTCPeerConnection({ iceServers: [] });
+        const pc = new RTCPeerConnection({ iceServers: iceServersFor(networkMode === 'global') });
         const entry = { pc, pending: [], stream: null };
         incoming.set(studentId, entry);
 
         pc.ontrack = (event) => {
             if (incoming.get(studentId) !== entry || !event.streams || !event.streams[0]) return;
             if (networkMode === 'global') {
-                // تأخير مخبّأ بسيط في الوضع العالمي فقط لامتصاص التذبذب، دون تقطيع البث.
+                // A small jitter buffer on internet links absorbs variation without stutter.
                 pc.getReceivers().forEach((receiver) => {
                     try {
                         if ('jitterBufferTarget' in receiver) receiver.jitterBufferTarget = 1500;
-                    } catch (error) {
-                        /* الخاصية غير مدعومة في هذا المتصفح */
-                    }
+                    } catch (error) { /* not supported */ }
                 });
             }
             entry.stream = event.streams[0];
@@ -1017,10 +900,9 @@
         };
         pc.onicecandidate = (event) => {
             if (event.candidate && incoming.get(studentId) === entry) {
-                inSocket.emit('webrtc:ice', { studentId, candidate: event.candidate });
+                inSocket.emit('host:ice', { studentId, candidate: event.candidate });
             }
         };
-
         try {
             await pc.setRemoteDescription(new RTCSessionDescription(offer));
             if (incoming.get(studentId) !== entry) return;
@@ -1031,7 +913,7 @@
             if (incoming.get(studentId) !== entry) return;
             inSocket.emit('host:answer', { studentId, answer });
         } catch (error) {
-            console.error('خطأ في استقبال بث الطالب:', error);
+            console.error('incoming', error);
         }
     }
 
@@ -1042,46 +924,30 @@
             if (entry.pc.remoteDescription) await entry.pc.addIceCandidate(new RTCIceCandidate(candidate));
             else entry.pending.push(candidate);
         } catch (error) {
-            console.error('خطأ في مرشح شبكة الطالب:', error);
+            console.error('incoming ice', error);
         }
     }
-
-    // ---------- host connection ----------
 
     function attachHostHandlers(socket) {
         socket.on('connect', () => {
             socket.timeout(5000).emit('host:register', { secret: hostInfo && hostInfo.hostSecret }, (error, response) => {
                 if (error || !response || !response.ok) {
                     dom.generateBtn.disabled = true;
-                    setStatus(dom.hostStatus,
-                        (response && response.message) || 'تعذر تسجيل واجهة الأستاذ؛ أعد تشغيل التطبيق.', 'err');
-                    return;
+                    return setStatus(dom.hostStatus, I18n.errorKey(response, 'recv.registerFailed'), 'err');
                 }
-                setStatus(dom.hostStatus, 'أنشئ رمزاً لاستقبال البث الحي', 'ok');
+                setStatus(dom.hostStatus, 'recv.ready', 'ok');
                 dom.generateBtn.disabled = false;
-                dom.generateBtn.textContent = 'توليد رمز';
             });
         });
-        socket.on('disconnect', () => {
-            setStatus(dom.hostStatus, 'انقطع الاتصال بخدمة الاستقبال؛ جارٍ إعادة الاتصال.', 'err');
-        });
-        socket.on('connect_error', () => {
-            setStatus(dom.hostStatus, 'تعذر الاتصال بخدمة الاستقبال على هذا الحاسوب.', 'err');
-        });
+        socket.on('disconnect', () => setStatus(dom.hostStatus, 'recv.reconnecting', 'err'));
+        socket.on('connect_error', () => setStatus(dom.hostStatus, 'recv.serviceDown', 'err'));
         socket.on('session:state', renderHostSession);
-        socket.on('session:ended', ({ message }) => {
-            setStatus(dom.hostStatus, message || 'تم إنهاء الجلسة.');
-        });
-        socket.on('session:expired', () => {
-            setStatus(dom.hostStatus, 'انتهت مدة صلاحية الرمز.', 'err');
-        });
-        socket.on('session:expiring', () => {
-            setStatus(dom.hostStatus, 'تحذير: ستنتهي صلاحية الرمز خلال 5 دقائق.', 'err');
-        });
+        socket.on('session:ended', () => setStatus(dom.hostStatus, 'recv.ended'));
+        socket.on('session:expired', () => setStatus(dom.hostStatus, 'recv.expired', 'err'));
+        socket.on('session:expiring', () => setStatus(dom.hostStatus, 'recv.expiring', 'err'));
         socket.on('control:permission', ({ studentId, enabled }) => {
-            if (studentId !== selectedStudentId) return;
-            const selected = hostStudents.find((student) => student.id === studentId);
-            if (selected) selected.controlEnabled = Boolean(enabled);
+            const student = hostStudents.find((item) => item.id === studentId);
+            if (student) student.controlEnabled = Boolean(enabled);
             updateTeacherControlUi();
         });
         socket.on('student:event', ({ studentId, type }) => {
@@ -1089,107 +955,58 @@
             else if (type === 'resumed') applyIncomingFreeze(false, studentId);
             else if (type === 'stopped' || type === 'left') clearIncomingViewer(studentId);
         });
-        socket.on('webrtc:offer', ({ studentId, offer }) => {
-            handleWebrtcOffer(studentId, offer).catch(console.error);
-        });
-        socket.on('webrtc:ice', ({ studentId, candidate }) => {
-            handleWebrtcIce(studentId, candidate).catch(console.error);
-        });
+        socket.on('webrtc:offer', ({ studentId, offer }) => handleWebrtcOffer(studentId, offer).catch(console.error));
+        socket.on('webrtc:ice', ({ studentId, candidate }) => handleWebrtcIce(studentId, candidate).catch(console.error));
     }
 
     dom.generateBtn.addEventListener('click', () => {
-        if (!inSocket) {
-            setStatus(dom.hostStatus, 'تعذر الاتصال بخدمة الاستقبال على هذا الحاسوب.', 'err');
-            return;
-        }
+        if (!inSocket) return setStatus(dom.hostStatus, 'recv.serviceDown', 'err');
         dom.generateBtn.disabled = true;
-        dom.generateBtn.textContent = 'جارٍ التحقق وتوليد الرمز...';
-        setStatus(dom.hostStatus, 'جارٍ التحقق من الرمز على الشبكة المحلية...');
-        networkMode = segmentedValue(dom.networkModeSelect) === 'global' ? 'global' : 'local';
-        inSocket.timeout(10000).emit('host:create', {
-            networkMode,
+        I18n.setText(dom.generateBtn, 'recv.generating');
+        setStatus(dom.hostStatus, 'recv.generating');
+        const mode = segmentedValue(dom.networkModeSelect) === 'global' ? 'global' : 'local';
+        inSocket.timeout(15000).emit('host:create', {
+            networkMode: mode,
             durationMinutes: Number(dom.durationSelect.value),
-            username: networkMode === 'global' ? dom.globalTeacherUsername.value.trim() : undefined,
             protocolVersion: window.LabShowProtocol ? window.LabShowProtocol.PROTOCOL_VERSION : undefined
         }, (error, response) => {
             if (error || !response || !response.ok) {
-                setStatus(dom.hostStatus,
-                    (response && response.message) || 'تعذر توليد الرمز؛ تحقق من اتصال التطبيق.', 'err');
+                setStatus(dom.hostStatus, I18n.errorKey(response, 'recv.createFailed'), 'err');
             } else {
-                setStatus(dom.hostStatus, 'تم إنشاء الرمز؛ أدخله على حاسوب الطالب.', 'ok');
+                setStatus(dom.hostStatus, 'recv.created', 'ok');
             }
             dom.generateBtn.disabled = !inSocket;
-            dom.generateBtn.textContent = 'توليد رمز';
+            I18n.setText(dom.generateBtn, 'recv.generate');
         });
     });
 
     dom.deleteCodeBtn.addEventListener('click', () => {
-        if (!inSocket || !inSocket.connected) {
-            setStatus(dom.hostStatus, 'انقطع الاتصال بخدمة الاستقبال.', 'err');
-            return;
-        }
+        if (!inSocket || !inSocket.connected) return setStatus(dom.hostStatus, 'recv.serviceDown', 'err');
         inSocket.emit('host:delete');
         clearIncomingViewer();
     });
 
-    dom.selfShareBtn.addEventListener('click', () => {
-        if (isSharingOutgoing) {
-            stopOutgoingShare(true);
-            setStatus(dom.selfShareStatus, 'تم إيقاف مشاركة شاشتي.');
-            return;
-        }
-        if (!hostInfo) {
-            setStatus(dom.selfShareStatus, 'خدمة الاستقبال غير جاهزة بعد.', 'err');
-            return;
-        }
-        // A global session checks the username and link token of everyone who joins,
-        // the teacher's own share included, so pass the session's own identity.
-        const selfIdentity = hostSession && hostSession.networkMode === 'global'
-            ? { username: hostSession.username, token: hostSession.relayToken }
-            : null;
-        beginOutgoingShare(
-            dom.generatedCode.textContent,
-            'بث الأستاذ',
-            { ip: '127.0.0.1', port: hostInfo.port },
-            dom.selfShareStatus,
-            selfIdentity
-        );
-    });
-
-    dom.selfBroadcastBtn.addEventListener('click', () => {
-        if (role !== 'teacher') return;
-        openTeacherPage('code');
-        if (isSharingOutgoing) {
-            stopOutgoingShare(true);
-            setStatus(dom.selfShareStatus, 'تم إيقاف مشاركة شاشتي.');
-            return;
-        }
-        dom.selfShareBtn.click();
-    });
-
     dom.receiverPauseBtn.addEventListener('click', () => {
-        if (!inSocket || !inSocket.connected || !selectedStudentId || role !== 'teacher') return;
+        if (!inSocket || !inSocket.connected || !selectedStudentId) return;
         inSocket.timeout(3000).emit('host:pause-student', {
             studentId: selectedStudentId,
             paused: !isIncomingPaused
         }, (error, response) => {
             if (error || !response || !response.ok) {
-                dom.teacherControlStatus.textContent =
-                    (response && response.message) || 'تعذر تغيير حالة البث.';
+                I18n.setText(dom.teacherControlStatus, I18n.errorKey(response, 'keys.sendFailed'));
             }
         });
     });
 
     dom.remoteKeyButtons.forEach((button) => {
         button.addEventListener('click', () => {
-            if (!inSocket || !inSocket.connected || role !== 'teacher' || !selectedStudentId) return;
+            if (!inSocket || !inSocket.connected || !selectedStudentId) return;
             inSocket.timeout(3000).emit('host:key', {
                 studentId: selectedStudentId,
                 key: button.dataset.remoteKey
             }, (error, response) => {
                 if (error || !response || !response.ok) {
-                    dom.teacherControlStatus.textContent =
-                        (response && response.message) || 'تعذر إرسال المفتاح؛ تحقق من الاتصال.';
+                    I18n.setText(dom.teacherControlStatus, I18n.errorKey(response, 'keys.sendFailed'));
                 }
             });
         });
@@ -1215,7 +1032,7 @@
             if (video) video.srcObject = dom.remoteVideo.srcObject;
             if (title) title.textContent = activeTitle();
         } catch (error) {
-            console.error('تعذر تحديث المشغّل العائم:', error);
+            console.error('floating', error);
         }
     }
 
@@ -1228,12 +1045,10 @@
         }
         floatingWin = window.open('floating.html', 'FloatingPlayer');
         if (!floatingWin) return;
-        updateFloatingPlayer();
-        if (isIncomingPaused) {
-            const canvas = floatingWin.document.getElementById('pipFreezeCanvas');
-            captureFrozenFrame(dom.remoteVideo, canvas);
-            if (canvas) canvas.style.display = 'block';
-        }
+        floatingWin.addEventListener('load', () => {
+            updateFloatingPlayer();
+            if (isIncomingPaused) applyIncomingFreeze(true, selectedStudentId);
+        }, { once: true });
         floatingWin.onbeforeunload = () => {
             floatingWin = null;
             if (dom.remoteVideo.srcObject) api.showWindow();
@@ -1244,7 +1059,6 @@
         floatingWin = null;
         if (dom.remoteVideo.srcObject) api.showWindow();
     });
-
     dom.floatBtn.addEventListener('click', (event) => {
         event.stopPropagation();
         openFloatingWindow();
@@ -1280,22 +1094,29 @@
     document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape' && isFullscreen) setFullscreenState(false);
     });
-
     window.addEventListener('message', (event) => {
-        if (event.data && event.data.type === 'labshow:restore') closeFloatingWindow(true);
+        if (event.source === floatingWin && event.data && event.data.type === 'labshow:restore') {
+            closeFloatingWindow(true);
+        }
     });
 
     // ---------- boot ----------
 
     async function boot() {
+        I18n.apply();
+        setStatus(dom.outgoingStatus, 'send.ready');
+        syncOutgoingUi();
+        renderStudentRoster([]);
+        updateViewerLayout();
+        updateTeacherControlUi();
         if (!hasBridge) {
             dom.generateBtn.disabled = true;
-            setStatus(dom.hostStatus, 'افتح تطبيق Lab show المكتبي؛ لا تفتح ملف HTML مباشرة في المتصفح.', 'err');
+            setStatus(dom.hostStatus, 'recv.desktopOnly', 'err');
             return;
         }
         try {
             hostInfo = await api.getHostInfo();
-            if (!hostInfo || !hostInfo.port) throw new Error('لم يُرجع الخادم المحلي منفذاً.');
+            if (!hostInfo || !hostInfo.port) throw new Error('no local port');
             inSocket = io(`http://127.0.0.1:${hostInfo.port}`, {
                 timeout: 5000,
                 reconnectionDelay: 500,
@@ -1303,12 +1124,11 @@
             });
             attachHostHandlers(inSocket);
         } catch (error) {
-            console.error('تعذر بدء خدمة الاستقبال:', error);
+            console.error('boot', error);
             dom.generateBtn.disabled = true;
-            setStatus(dom.hostStatus, 'تعذر بدء خدمة الاستقبال؛ أعد تشغيل التطبيق.', 'err');
+            setStatus(dom.hostStatus, 'recv.registerFailed', 'err');
         }
     }
 
-    syncOutgoingUi();
     boot();
 })();

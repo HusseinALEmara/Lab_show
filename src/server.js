@@ -6,17 +6,46 @@ const express = require('express');
 const { Server } = require('socket.io');
 
 const { createSessionStore } = require('./session-store');
+const { createRoomStore, OWNER_ID } = require('./room-store');
 const { USERNAME_PATTERN } = require('./global-relay');
 const { PROTOCOL_VERSION, isCompatible } = require('./protocol');
 const { normalizeCode, generateSessionCode } = require('./session-fields');
 const { isAllowedControlKey } = require('./keyboard-controls');
+const { buildLink } = require('./links');
 
 const UDP_DISCOVERY_PORT = 41234;
 const CODE_ATTEMPTS = 8;
 const CODE_PROBE_TIMEOUT_MS = 350;
 
+// Every refusal carries a stable `error` key (translated by the interface) and an
+// Arabic `message` kept for older clients.
+const MESSAGES = {
+    'host-only': 'هذا الإجراء متاح من نافذة التطبيق على هذا الجهاز فقط.',
+    'bad-code': 'الرمز غير صحيح أو منتهي.',
+    'incompatible': 'إصدارات التطبيق غير متوافقة؛ حدّث كلا الجهازين إلى النسخة نفسها.',
+    'global-auth': 'رابط الجلسة غير صالح لهذا الرمز.',
+    'bad-name': 'أدخل اسماً من 3 إلى 32 حرفاً أو رقماً.',
+    'no-active-share': 'لا توجد مشاركة نشطة.',
+    'start-sharing-first': 'ابدأ بث الشاشة أولاً.',
+    'control-local-only': 'التحكم بالمفاتيح متاح داخل الشبكة المحلية فقط، وممنوع في الوضع العالمي.',
+    'not-broadcasting': 'هذا البث غير متاح حالياً.',
+    'peer-gone': 'لم يعد هذا الجهاز متصلاً.',
+    'key-not-allowed': 'هذا المفتاح غير مسموح.',
+    'control-not-allowed': 'لم يفعّل صاحب البث التحكم.',
+    'no-room': 'لا يوجد بث عمومي بهذا الرمز.',
+    'bad-token': 'رابط البث العمومي غير صالح.',
+    'room-full': 'البث العمومي ممتلئ.',
+    'not-in-room': 'لست داخل هذا البث العمومي.',
+    'empty-comment': 'اكتب تعليقاً أولاً.',
+    'comment-rate': 'تعليقات كثيرة؛ انتظر قليلاً.'
+};
+
 function safeCallback(callback, payload) {
     if (typeof callback === 'function') callback(payload);
+}
+
+function fail(callback, error) {
+    safeCallback(callback, { ok: false, error, message: MESSAGES[error] || error });
 }
 
 function isLoopbackAddress(address) {
@@ -27,9 +56,9 @@ function stripIpv6Prefix(address) {
     return typeof address === 'string' && address.startsWith('::ffff:') ? address.slice(7) : address;
 }
 
-// Constant-time comparison of the host secret, so its value cannot be guessed byte by byte.
+// Constant-time comparison of secrets, so their value cannot be guessed byte by byte.
 function secretsMatch(expected, provided) {
-    if (typeof expected !== 'string' || typeof provided !== 'string') return false;
+    if (typeof expected !== 'string' || typeof provided !== 'string' || !expected) return false;
     const a = Buffer.from(expected);
     const b = Buffer.from(provided);
     return a.length === b.length && crypto.timingSafeEqual(a, b);
@@ -44,10 +73,7 @@ function ipv4ToNumber(address) {
 
 function isOnLocalSubnet(address) {
     if (isLoopbackAddress(address)) return true;
-    const normalized = typeof address === 'string' && address.startsWith('::ffff:')
-        ? address.slice(7)
-        : address;
-    const remote = ipv4ToNumber(normalized);
+    const remote = ipv4ToNumber(stripIpv6Prefix(address));
     if (remote === null) return false;
 
     return Object.values(os.networkInterfaces()).some((interfaces) =>
@@ -110,20 +136,35 @@ function probeCodeOnLan(code, onBound = () => {}) {
     });
 }
 
-// hostSecret proves that a socket belongs to this computer's own Lab show window.
+// This device is the server of its own broadcasts and receptions. Two independent
+// parts share it:
+//  - a receiving session: other devices send their screens here (one each);
+//  - a public broadcast ("room"): this device streams its screen to many viewers.
+//
+// hostSecret proves that a socket belongs to this computer's own Lab show windows.
 // A loopback address alone is not enough: any web page open in a browser on the
-// same computer can also reach 127.0.0.1 and would otherwise take over the host role.
-function createLocalHostNode({ hostSecret = crypto.randomBytes(32).toString('hex') } = {}) {
+// same computer can also reach 127.0.0.1.
+//
+// resolvePublicEndpoint(port) is asked for an internet-reachable address when a
+// global code is made (the desktop app maps a router port through UPnP). It returns
+// { ip, port, reachable, reason } or null.
+function createLocalHostNode({
+    hostSecret = crypto.randomBytes(32).toString('hex'),
+    resolvePublicEndpoint = null
+} = {}) {
     const app = express();
     const httpServer = http.createServer(app);
-    const io = new Server(httpServer, { cors: { origin: '*' } });
+    const io = new Server(httpServer, { cors: { origin: '*' }, maxHttpBufferSize: 256 * 1024 });
     const store = createSessionStore();
+    const rooms = createRoomStore();
 
     let hostSocketId = null;
+    let roomOwnerSocketId = null;
     let reservingCode = null;
     let udpSocket = null;
     let expirationTimer = null;
     let warningTimer = null;
+    let roomTimer = null;
     let listeningPort = 0;
     let ownProbePort = null;
 
@@ -133,9 +174,37 @@ function createLocalHostNode({ hostSecret = crypto.randomBytes(32).toString('hex
         return isLoopbackAddress(address) || getLocalIPs().includes(address);
     }
 
+    function isTrustedLocal(socket, secret) {
+        return isLoopbackAddress(socket.handshake.address) && secretsMatch(hostSecret, secret);
+    }
+
     function isHost(socket) {
         return Boolean(hostSocketId && socket.id === hostSocketId && isLoopbackAddress(socket.handshake.address));
     }
+
+    function isRoomOwner(socket) {
+        return Boolean(roomOwnerSocketId && socket.id === roomOwnerSocketId &&
+            isLoopbackAddress(socket.handshake.address));
+    }
+
+    async function reachFor(networkMode) {
+        const lanEndpoint = `${getLocalIPs()[0] || '127.0.0.1'}:${listeningPort}`;
+        if (networkMode !== 'global') return { endpoint: lanEndpoint, reachability: 'lan' };
+        if (typeof resolvePublicEndpoint !== 'function') {
+            return { endpoint: lanEndpoint, reachability: 'upnp-unavailable' };
+        }
+        try {
+            const result = await resolvePublicEndpoint(listeningPort);
+            if (result && result.reachable && result.ip && result.port) {
+                return { endpoint: `${result.ip}:${result.port}`, reachability: 'internet' };
+            }
+            return { endpoint: lanEndpoint, reachability: (result && result.reason) || 'upnp-unavailable' };
+        } catch (error) {
+            return { endpoint: lanEndpoint, reachability: 'upnp-unavailable' };
+        }
+    }
+
+    // ---------- receiving session ----------
 
     function emitState() {
         if (hostSocketId) io.to(hostSocketId).emit('session:state', store.serialize());
@@ -185,15 +254,41 @@ function createLocalHostNode({ hostSecret = crypto.randomBytes(32).toString('hex
         return generateSessionCode();
     }
 
+    // ---------- public broadcast (room) ----------
+
+    function emitRoom(event, payload) {
+        io.to('room').emit(event, payload);
+        if (roomOwnerSocketId) io.to(roomOwnerSocketId).emit(event, payload);
+    }
+
+    function emitParticipants() {
+        emitRoom('room:participants', rooms.participants());
+    }
+
+    function endRoom(reason) {
+        if (!rooms.room) return;
+        if (roomTimer) clearTimeout(roomTimer);
+        roomTimer = null;
+        for (const viewer of rooms.viewers()) {
+            const socket = io.sockets.sockets.get(viewer.socketId);
+            if (socket) {
+                socket.emit('room:ended', { reason });
+                socket.leave('room');
+            }
+        }
+        rooms.clear();
+        if (roomOwnerSocketId) io.to(roomOwnerSocketId).emit('room:state', null);
+    }
+
     io.on('connection', (socket) => {
+        // ----- receiving session: this computer's main window -----
+
         socket.on('host:register', (payload, callback) => {
             if (typeof payload === 'function') {
                 callback = payload;
                 payload = {};
             }
-            if (!isLoopbackAddress(socket.handshake.address) || !secretsMatch(hostSecret, payload && payload.secret)) {
-                return safeCallback(callback, { ok: false, message: 'تسجيل واجهة الأستاذ مسموح من نافذة التطبيق على هذا الجهاز فقط.' });
-            }
+            if (!isTrustedLocal(socket, payload && payload.secret)) return fail(callback, 'host-only');
             hostSocketId = socket.id;
             const current = store.serialize();
             emitState();
@@ -205,40 +300,24 @@ function createLocalHostNode({ hostSecret = crypto.randomBytes(32).toString('hex
             safeCallback(callback, { ok: true });
         });
 
-        socket.on('host:create', async (payload = {}, callback) => {
-            if (!isHost(socket)) {
-                return safeCallback(callback, { ok: false, message: 'يجب إنشاء الجلسة من نافذة التطبيق على هذا الجهاز.' });
-            }
+        socket.on('host:create', async (payload, callback) => {
+            if (!isHost(socket)) return fail(callback, 'host-only');
             const { title, durationMinutes, networkMode, username, protocolVersion } = payload || {};
             const global = networkMode === 'global';
-            if (global && !USERNAME_PATTERN.test(String(username || '').trim())) {
-                return safeCallback(callback, {
-                    ok: false,
-                    message: 'أدخل اسماً فريداً من 3 إلى 32 حرفاً أو رقماً للوضع العالمي.'
-                });
-            }
+            const name = String(username || '').trim();
+            if (global && name && !USERNAME_PATTERN.test(name)) return fail(callback, 'bad-name');
             if (store.session) endSession('replaced', 'تم استبدال الرمز برمز جديد.');
 
             const code = await reserveUniqueCode();
-            let usernameValue = '';
-            let relayToken = '';
-            let globalUrl = '';
-            if (global) {
-                usernameValue = username.trim();
-                relayToken = generateSessionCode(12);
-                const endpoint = `${getLocalIPs()[0] || '127.0.0.1'}:${listeningPort}`;
-                const params = new URLSearchParams({
-                    c: code,
-                    u: usernameValue,
-                    e: endpoint,
-                    t: relayToken
-                });
-                globalUrl = `https://labshow.link/j?${params.toString()}`;
-            }
+            const { endpoint, reachability } = await reachFor(global ? 'global' : 'local');
+            const relayToken = global ? generateSessionCode(12) : '';
+            const globalUrl = buildLink({
+                kind: 'send', mode: global ? 'global' : 'local', code, endpoint, token: relayToken, username: name
+            });
 
             const session = store.create({
                 code, title, durationMinutes, networkMode,
-                username: usernameValue, relayToken, globalUrl,
+                username: global ? name : '', relayToken, globalUrl, reachability,
                 protocolVersion: protocolVersion || PROTOCOL_VERSION
             });
 
@@ -262,7 +341,7 @@ function createLocalHostNode({ hostSecret = crypto.randomBytes(32).toString('hex
             }
 
             emitState();
-            safeCallback(callback, { ok: true, session });
+            safeCallback(callback, { ok: true, session: store.serialize() });
         });
 
         socket.on('host:delete', () => {
@@ -271,36 +350,33 @@ function createLocalHostNode({ hostSecret = crypto.randomBytes(32).toString('hex
         });
 
         socket.on('host:select', ({ studentId } = {}, callback) => {
-            if (!isHost(socket)) return safeCallback(callback, { ok: false, message: 'مصدر التحكم غير مصرح.' });
+            if (!isHost(socket)) return fail(callback, 'host-only');
             const result = store.select(studentId);
-            if (!result.ok) return safeCallback(callback, { ok: false, message: 'الطالب غير متصل بالبث حالياً.' });
+            if (!result.ok) return fail(callback, 'not-broadcasting');
             sendToStudent(studentId, 'student:selected', { studentId });
             emitState();
             safeCallback(callback, { ok: true, studentId });
         });
 
         socket.on('host:stop-student', ({ studentId } = {}, callback) => {
-            if (!isHost(socket)) return safeCallback(callback, { ok: false, message: 'مصدر التحكم غير مصرح.' });
-            const student = store.get(studentId);
-            if (!student) return safeCallback(callback, { ok: false, message: 'لم يعد هذا الطالب متصلاً.' });
+            if (!isHost(socket)) return fail(callback, 'host-only');
+            if (!store.get(studentId)) return fail(callback, 'peer-gone');
             sendToStudent(studentId, 'host:stop', { studentId });
             safeCallback(callback, { ok: true });
         });
 
         socket.on('host:pause-student', ({ studentId, paused } = {}, callback) => {
-            if (!isHost(socket)) return safeCallback(callback, { ok: false, message: 'مصدر التحكم غير مصرح.' });
-            const student = store.get(studentId);
-            if (!student) return safeCallback(callback, { ok: false, message: 'لم يعد هذا الطالب متصلاً.' });
+            if (!isHost(socket)) return fail(callback, 'host-only');
+            if (!store.get(studentId)) return fail(callback, 'peer-gone');
             sendToStudent(studentId, 'host:pause', { studentId, paused: Boolean(paused) });
             safeCallback(callback, { ok: true });
         });
 
         socket.on('host:key', ({ studentId, key } = {}, callback) => {
-            if (!isHost(socket)) return safeCallback(callback, { ok: false, message: 'مصدر التحكم غير مصرح.' });
-            if (!isAllowedControlKey(key)) return safeCallback(callback, { ok: false, message: 'هذا المفتاح غير مسموح.' });
-            if (!store.canSendKey(studentId)) {
-                return safeCallback(callback, { ok: false, message: 'لم يفعّل الطالب التحكم لهذا البث.' });
-            }
+            if (!isHost(socket)) return fail(callback, 'host-only');
+            if (store.isGlobal()) return fail(callback, 'control-local-only');
+            if (!isAllowedControlKey(key)) return fail(callback, 'key-not-allowed');
+            if (!store.canSendKey(studentId)) return fail(callback, 'control-not-allowed');
             sendToStudent(studentId, 'control:key', { studentId, key });
             safeCallback(callback, { ok: true });
         });
@@ -315,30 +391,24 @@ function createLocalHostNode({ hostSecret = crypto.randomBytes(32).toString('hex
             sendToStudent(studentId, 'webrtc:ice', { studentId, candidate });
         });
 
+        // ----- receiving session: a device sending its screen here -----
+
         socket.on('student:join', ({ code, title, username, token, protocolVersion } = {}, callback) => {
             const current = store.serialize();
             if (current && !isCompatible(protocolVersion, current.protocolVersion)) {
-                return safeCallback(callback, {
-                    ok: false,
-                    message: 'إصدارات التطبيق غير متوافقة؛ حدّث كلا الجهازين إلى النسخة نفسها.'
-                });
+                return fail(callback, 'incompatible');
             }
             if (current && current.networkMode === 'global') {
-                if (String(username || '').trim() !== current.username || !secretsMatch(current.relayToken, token)) {
-                    return safeCallback(callback, {
-                        ok: false,
-                        message: 'اسم المستخدم أو رمز المطابقة غير صالح لهذه الجلسة.'
-                    });
-                }
+                const nameOk = !current.username || String(username || '').trim() === current.username;
+                if (!nameOk || !secretsMatch(current.relayToken, token)) return fail(callback, 'global-auth');
             }
             const result = store.join({ code: normalizeCode(code), title, socketId: socket.id });
-            if (!result.ok) {
-                return safeCallback(callback, { ok: false, message: 'الرمز غير صحيح أو منتهي.' });
-            }
+            if (!result.ok) return fail(callback, 'bad-code');
             emitState();
             safeCallback(callback, {
                 ok: true,
                 studentId: result.student.id,
+                networkMode: store.serialize().networkMode,
                 expiresAt: store.serialize().expiresAt
             });
         });
@@ -353,7 +423,7 @@ function createLocalHostNode({ hostSecret = crypto.randomBytes(32).toString('hex
 
         socket.on('student:update-title', ({ title } = {}, callback) => {
             const student = store.findBySocket(socket.id);
-            if (!student) return safeCallback(callback, { ok: false, message: 'لا توجد جلسة مشاركة نشطة.' });
+            if (!student) return fail(callback, 'no-active-share');
             store.updateTitle(student.id, title);
             const updatedTitle = store.get(student.id).title;
             if (hostSocketId) {
@@ -392,15 +462,10 @@ function createLocalHostNode({ hostSecret = crypto.randomBytes(32).toString('hex
 
         socket.on('student:permission', ({ enabled } = {}, callback) => {
             const student = store.findBySocket(socket.id);
-            if (!student || typeof enabled !== 'boolean') {
-                return safeCallback(callback, { ok: false, message: 'لا توجد جلسة مشاركة نشطة.' });
-            }
-            if (enabled && (!student.isSharing || student.isPaused)) {
-                return safeCallback(callback, { ok: false, message: 'ابدأ بث الشاشة أولاً.' });
-            }
-            if (enabled && !store.isGlobal() && !isOnLocalSubnet(socket.handshake.address)) {
-                return safeCallback(callback, { ok: false, message: 'التحكم متاح داخل الشبكة المحلية فقط.' });
-            }
+            if (!student || typeof enabled !== 'boolean') return fail(callback, 'no-active-share');
+            if (enabled && store.isGlobal()) return fail(callback, 'control-local-only');
+            if (enabled && (!student.isSharing || student.isPaused)) return fail(callback, 'start-sharing-first');
+            if (enabled && !isOnLocalSubnet(socket.handshake.address)) return fail(callback, 'control-local-only');
             store.setControl(student.id, enabled);
             if (hostSocketId) {
                 io.to(hostSocketId).emit('control:permission', { studentId: student.id, enabled });
@@ -428,8 +493,127 @@ function createLocalHostNode({ hostSecret = crypto.randomBytes(32).toString('hex
             io.to(hostSocketId).emit('webrtc:ice', { studentId, candidate });
         });
 
+        // ----- public broadcast: this computer's room window -----
+
+        socket.on('room:owner', (payload, callback) => {
+            if (!isTrustedLocal(socket, payload && payload.secret)) return fail(callback, 'host-only');
+            roomOwnerSocketId = socket.id;
+            socket.emit('room:state', rooms.serialize());
+            safeCallback(callback, { ok: true });
+        });
+
+        socket.on('room:create', async (payload, callback) => {
+            if (!isRoomOwner(socket)) return fail(callback, 'host-only');
+            const { title, networkMode, durationMinutes, ownerName } = payload || {};
+            const global = networkMode === 'global';
+            endRoom('replaced');
+            const code = await reserveUniqueCode();
+            const { endpoint, reachability } = await reachFor(global ? 'global' : 'local');
+            const token = generateSessionCode(12);
+            const link = buildLink({ kind: 'room', mode: global ? 'global' : 'local', code, endpoint, token });
+            const room = rooms.create({
+                code, title, networkMode: global ? 'global' : 'local',
+                token, link, reachability, durationMinutes, ownerName
+            });
+            if (room.expiresAt) {
+                roomTimer = setTimeout(() => endRoom('expired'), room.expiresAt - Date.now());
+                roomTimer.unref?.();
+            }
+            socket.emit('room:state', room);
+            safeCallback(callback, { ok: true, room });
+        });
+
+        socket.on('room:end', () => {
+            if (isRoomOwner(socket)) endRoom('ended');
+        });
+
+        socket.on('room:kick', ({ viewerId } = {}) => {
+            if (!isRoomOwner(socket)) return;
+            const viewer = rooms.remove(viewerId);
+            if (!viewer) return;
+            const target = io.sockets.sockets.get(viewer.socketId);
+            if (target) {
+                target.emit('room:ended', { reason: 'removed' });
+                target.leave('room');
+            }
+            if (roomOwnerSocketId) io.to(roomOwnerSocketId).emit('room:viewer-left', { viewerId });
+            emitParticipants();
+        });
+
+        // ----- public broadcast: a viewer -----
+
+        socket.on('room:join', ({ code, token, name, protocolVersion } = {}, callback) => {
+            if (!isCompatible(protocolVersion, PROTOCOL_VERSION)) return fail(callback, 'incompatible');
+            const result = rooms.join({ code, token, name, socketId: socket.id });
+            if (!result.ok) return fail(callback, result.error);
+            socket.join('room');
+            const room = rooms.serialize();
+            safeCallback(callback, {
+                ok: true,
+                viewerId: result.viewer.id,
+                room: {
+                    code: room.code,
+                    title: room.title,
+                    networkMode: room.networkMode,
+                    participants: room.participants,
+                    comments: room.comments
+                }
+            });
+            if (roomOwnerSocketId) {
+                io.to(roomOwnerSocketId).emit('room:viewer-joined', {
+                    viewerId: result.viewer.id, name: result.viewer.name
+                });
+            }
+            emitParticipants();
+        });
+
+        socket.on('room:leave', () => {
+            const viewer = rooms.leaveBySocket(socket.id);
+            if (!viewer) return;
+            socket.leave('room');
+            if (roomOwnerSocketId) io.to(roomOwnerSocketId).emit('room:viewer-left', { viewerId: viewer.id });
+            emitParticipants();
+        });
+
+        socket.on('room:comment', ({ text } = {}, callback) => {
+            const senderId = isRoomOwner(socket) ? OWNER_ID : (rooms.viewerBySocket(socket.id) || {}).id;
+            if (!senderId) return fail(callback, 'not-in-room');
+            const result = rooms.addComment(senderId, text);
+            if (!result.ok) return fail(callback, result.error);
+            emitRoom('room:comment', result.comment);
+            safeCallback(callback, { ok: true, comment: result.comment });
+        });
+
+        socket.on('room:mic', ({ on } = {}) => {
+            const senderId = isRoomOwner(socket) ? OWNER_ID : (rooms.viewerBySocket(socket.id) || {}).id;
+            if (!senderId || !rooms.setMic(senderId, on)) return;
+            emitParticipants();
+        });
+
+        // WebRTC signaling: the owner talks to one viewer at a time; a viewer only to the owner.
+        socket.on('room:signal', ({ to, data } = {}) => {
+            if (isRoomOwner(socket)) {
+                const viewer = rooms.get(to);
+                if (viewer) io.to(viewer.socketId).emit('room:signal', { from: OWNER_ID, data });
+                return;
+            }
+            const viewer = rooms.viewerBySocket(socket.id);
+            if (viewer && roomOwnerSocketId) {
+                io.to(roomOwnerSocketId).emit('room:signal', { from: viewer.id, data });
+            }
+        });
+
         socket.on('disconnect', () => {
             if (socket.id === hostSocketId) hostSocketId = null;
+            if (socket.id === roomOwnerSocketId) {
+                endRoom('owner-left');
+                roomOwnerSocketId = null;
+            }
+            const viewer = rooms.leaveBySocket(socket.id);
+            if (viewer) {
+                if (roomOwnerSocketId) io.to(roomOwnerSocketId).emit('room:viewer-left', { viewerId: viewer.id });
+                emitParticipants();
+            }
             const student = store.removeBySocket(socket.id);
             if (!student) return;
             emitState();
@@ -443,9 +627,11 @@ function createLocalHostNode({ hostSecret = crypto.randomBytes(32).toString('hex
             const text = msg.toString();
             if (text.startsWith('LAB_SHOW_CHECK_CODE:')) {
                 const candidate = text.slice('LAB_SHOW_CHECK_CODE:'.length).trim();
-                const current = store.serialize();
                 if (isOwnProbe(rinfo)) return;
-                if ((current && current.code === candidate) || reservingCode === candidate) {
+                const current = store.serialize();
+                const room = rooms.room;
+                if ((current && current.code === candidate) || (room && room.code === candidate) ||
+                    reservingCode === candidate) {
                     udpSocket.send(Buffer.from(`LAB_SHOW_CODE_TAKEN:${candidate}`), rinfo.port, rinfo.address);
                 }
                 return;
@@ -480,6 +666,8 @@ function createLocalHostNode({ hostSecret = crypto.randomBytes(32).toString('hex
             expirationTimer = null;
             if (warningTimer) clearTimeout(warningTimer);
             warningTimer = null;
+            if (roomTimer) clearTimeout(roomTimer);
+            roomTimer = null;
             if (udpSocket) {
                 try { udpSocket.close(); } catch { /* already closed */ }
                 udpSocket = null;
@@ -495,6 +683,7 @@ function createLocalHostNode({ hostSecret = crypto.randomBytes(32).toString('hex
 module.exports = {
     createLocalHostNode,
     UDP_DISCOVERY_PORT,
+    MESSAGES,
     isOnLocalSubnet,
     isLoopbackAddress,
     secretsMatch

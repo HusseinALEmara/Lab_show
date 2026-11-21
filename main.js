@@ -17,6 +17,8 @@ const {
 } = require('electron');
 
 const { createLocalHostNode, UDP_DISCOVERY_PORT } = require('./src/server');
+const { createPortMapper } = require('./src/upnp');
+const { createNotificationGuard } = require('./src/notifications');
 const { isAllowedControlKey, pressControlKey } = require('./src/keyboard-controls');
 const {
     isInstallerShutdownRequest,
@@ -30,8 +32,29 @@ let hostNode = null;
 let hostInfo = { port: 0, ips: [] };
 let isQuitting = false;
 let outgoingState = { sharing: false, paused: false, controlEnabled: false };
+let roomOwnerWindow = null;
+const roomWindows = new Set();
+const portMapper = createPortMapper();
+const notificationGuard = createNotificationGuard();
+
+// Public STUN servers only tell each device its own internet address so the two can
+// connect directly; the picture never passes through them. LABSHOW_STUN_URLS
+// (comma-separated) replaces them, e.g. for a private network.
+const STUN_URLS = String(process.env.LABSHOW_STUN_URLS ||
+    'stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302')
+    .split(',').map((url) => url.trim()).filter(Boolean);
 
 app.setAppUserModelId('com.labshow.desktop');
+// Remote voices in a public broadcast must play without a click first.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
+function isAppWindow(webContents) {
+    if (mainWindow && !mainWindow.isDestroyed() && webContents === mainWindow.webContents) return true;
+    for (const win of roomWindows) {
+        if (!win.isDestroyed() && webContents === win.webContents) return true;
+    }
+    return false;
+}
 
 function createAppIcon() {
     const width = 32;
@@ -97,6 +120,9 @@ async function quitApplication() {
     isQuitting = true;
     if (floatingWindow && !floatingWindow.isDestroyed()) floatingWindow.destroy();
     floatingWindow = null;
+    for (const win of Array.from(roomWindows)) if (!win.isDestroyed()) win.destroy();
+    await notificationGuard.restore();
+    await Promise.race([portMapper.release(), new Promise((resolve) => setTimeout(resolve, 1500))]);
     if (hostNode) {
         await hostNode.stop();
         hostNode = null;
@@ -316,8 +342,8 @@ app.whenReady().then(async () => {
         );
     });
 
-    hostNode = createLocalHostNode();
-    hostInfo = await hostNode.start();
+    hostNode = createLocalHostNode({ resolvePublicEndpoint: (port) => portMapper.map(port) });
+    hostInfo = { ...(await hostNode.start()), iceServers: [{ urls: STUN_URLS }] };
     createWindowAndTray();
     // pathToFileURL encodes spaces in paths such as "C:\Users\Alwand Center\...".
     const entryUrl = pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href;
@@ -327,10 +353,77 @@ app.whenReady().then(async () => {
     app.quit();
 });
 
-// hostInfo carries the host secret: hand it to the main window only, never to the floating player.
-ipcMain.handle('host-info', (event) => {
-    if (!mainWindow || event.sender !== mainWindow.webContents) return null;
-    return hostInfo;
+// hostInfo carries the host secret: hand it to this app's own windows only, never to the
+// floating player.
+ipcMain.handle('host-info', (event) => (isAppWindow(event.sender) ? hostInfo : null));
+
+// A device sends its screen to one place at a time: either privately to one receiver
+// (main window) or publicly to many viewers (the owner's room window).
+ipcMain.handle('outgoing:can-start', () => (
+    roomOwnerWindow && !roomOwnerWindow.isDestroyed()
+        ? { ok: false, error: 'room-active' }
+        : { ok: true }
+));
+
+function sendRoomOwnerState() {
+    sendToRenderer('room:owner-state', { active: Boolean(roomOwnerWindow && !roomOwnerWindow.isDestroyed()) });
+}
+
+const ROOM_QUERY_KEYS = ['role', 'lang', 'host', 'port', 'code', 'token', 'mode', 'name', 'title', 'duration'];
+
+ipcMain.handle('room:open', (event, params = {}) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) return { ok: false, error: 'host-only' };
+    const role = params.role === 'owner' ? 'owner' : 'viewer';
+    if (role === 'owner') {
+        if (roomOwnerWindow && !roomOwnerWindow.isDestroyed()) {
+            roomOwnerWindow.focus();
+            return { ok: true, existing: true };
+        }
+        if (outgoingState.sharing) return { ok: false, error: 'sending-active' };
+    }
+    const win = new BrowserWindow({
+        width: 1200,
+        height: 780,
+        minWidth: 720,
+        minHeight: 520,
+        title: 'Lab show',
+        icon: createAppIcon(),
+        autoHideMenuBar: true,
+        backgroundColor: '#050707',
+        webPreferences: {
+            preload: path.join(__dirname, 'preload.js'),
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: false,
+            backgroundThrottling: false
+        }
+    });
+    // Keep the room window itself out of the shared screen (no picture-in-picture loop).
+    win.setContentProtection(true);
+    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    roomWindows.add(win);
+    if (role === 'owner') roomOwnerWindow = win;
+    win.on('closed', () => {
+        roomWindows.delete(win);
+        if (roomOwnerWindow === win) {
+            roomOwnerWindow = null;
+            notificationGuard.restore();
+            sendRoomOwnerState();
+        }
+    });
+    const query = {};
+    for (const key of ROOM_QUERY_KEYS) {
+        if (params[key] !== undefined && params[key] !== null) query[key] = String(params[key]);
+    }
+    query.role = role;
+    win.loadURL(`${pathToFileURL(path.join(__dirname, 'renderer', 'room.html')).href}?${new URLSearchParams(query)}`);
+    sendRoomOwnerState();
+    return { ok: true };
+});
+
+ipcMain.handle('notifications:set', async (event, suppressed) => {
+    if (!isAppWindow(event.sender)) return { ok: false, error: 'host-only' };
+    return suppressed ? notificationGuard.suppress() : notificationGuard.restore();
 });
 ipcMain.handle('find-host', (_event, code) => findHostByCodeOnLan(String(code || '')));
 

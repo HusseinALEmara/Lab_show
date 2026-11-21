@@ -1,4 +1,4 @@
-const PROTOCOL_VERSION = 3;
+const PROTOCOL_VERSION = 4;
 const MIN_SUPPORTED_VERSION = 2;
 
 function isCompatible(clientVersion, sessionVersion) {
