@@ -36,6 +36,8 @@ function normalizeDurationMinutes(value) {
 
 module.exports = {
     MAX_TITLE_LENGTH,
+    MAX_DURATION_MINUTES: 480,
+    CODE_PATTERN,
     normalizeCode,
     isValidCode,
     generateSessionCode,

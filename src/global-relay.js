@@ -1,6 +1,7 @@
 const http = require('node:http');
 const crypto = require('node:crypto');
 const { Server } = require('socket.io');
+const { CODE_PATTERN, normalizeCode, normalizeDurationMinutes } = require('./session-fields');
 
 const DEFAULT_RELAY_PORT = 4477;
 const MAX_ATTEMPTS_PER_MINUTE = 30;
@@ -13,6 +14,12 @@ function normalizeUsername(value) {
 
 function isRateLimited(store, key) {
     const now = Date.now();
+    // Drop finished windows so the map cannot grow without bound.
+    if (store.size > 10000) {
+        for (const [storedKey, entry] of store) {
+            if (now - entry.start >= 60000) store.delete(storedKey);
+        }
+    }
     const entry = store.get(key) || { start: now, count: 0 };
     if (now - entry.start >= 60000) {
         entry.start = now;
@@ -56,12 +63,13 @@ function createGlobalRelay({ port = DEFAULT_RELAY_PORT } = {}) {
             if (isRateLimited(attempts, `register:${socket.handshake.address}`)) {
                 return reply(false, { message: 'تم تجاوز حد المحاولات؛ حاول لاحقاً.' });
             }
-            const code = String(payload.code || '').trim();
+            const code = normalizeCode(String(payload.code || ''));
             const username = normalizeUsername(payload.username);
             const endpoint = String(payload.endpoint || '').trim();
-            const duration = Number(payload.durationMinutes);
+            // Same bound as a local session (8 hours), and below setTimeout's 2^31 ms limit.
+            const duration = normalizeDurationMinutes(payload.durationMinutes);
 
-            if (!/^\d{6}$/.test(code)) return reply(false, { message: 'رمز الجلسة غير صالح.' });
+            if (!CODE_PATTERN.test(code)) return reply(false, { message: 'رمز الجلسة غير صالح.' });
             if (!USERNAME_PATTERN.test(username)) {
                 return reply(false, { message: 'اسم المستخدم يجب أن يكون 3–32 حرفاً أو رقماً.' });
             }
@@ -73,7 +81,7 @@ function createGlobalRelay({ port = DEFAULT_RELAY_PORT } = {}) {
                 return reply(false, { message: 'اسم المستخدم مستخدم في بث عالمي نشط.' });
             }
 
-            const ttl = Number.isFinite(duration) && duration > 0 ? duration * 60 * 1000 : 60 * 60 * 1000;
+            const ttl = duration ? duration * 60 * 1000 : 60 * 60 * 1000;
             const token = crypto.randomBytes(18).toString('hex');
             const session = {
                 code,
@@ -97,7 +105,7 @@ function createGlobalRelay({ port = DEFAULT_RELAY_PORT } = {}) {
             if (isRateLimited(attempts, `find:${socket.handshake.address}`)) {
                 return reply(false, { message: 'تم تجاوز حد المحاولات؛ حاول لاحقاً.' });
             }
-            const code = String(payload.code || '').trim();
+            const code = normalizeCode(String(payload.code || ''));
             const username = normalizeUsername(payload.username);
             const session = sessions.get(code);
             if (!session || session.username !== username || Date.now() >= session.expiresAt) {
@@ -111,7 +119,7 @@ function createGlobalRelay({ port = DEFAULT_RELAY_PORT } = {}) {
         });
 
         socket.on('relay:unregister', (payload = {}, callback) => {
-            const session = sessions.get(String(payload.code || '').trim());
+            const session = sessions.get(normalizeCode(String(payload.code || '')));
             if (!session || session.token !== payload.token) {
                 if (typeof callback === 'function') callback({ ok: false });
                 return;

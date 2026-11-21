@@ -74,6 +74,7 @@
     let incomingStudentId = null;
     let isIncomingPaused = false;
     let floatingWin = null;
+    let hostSession = null;
     let isFullscreen = false;
     let hideControlsTimer = null;
 
@@ -565,7 +566,7 @@
         });
     }
 
-    async function beginOutgoingShare(code, title, target, statusElement) {
+    async function beginOutgoingShare(code, title, target, statusElement, targetIdentity = null) {
         if (!hasBridge) {
             setStatus(statusElement, 'شغّل تطبيق Lab show المكتبي؛ فتح الملف في المتصفح لا يدعم مشاركة الشاشة.', 'err');
             return;
@@ -580,8 +581,8 @@
         outgoingBusy = true;
         syncOutgoingUi();
         let resolvedTarget = target;
-        let globalIdentity = null;
-        outgoingGlobal = segmentedValue(dom.studentConnectionMode) === 'global';
+        let globalIdentity = targetIdentity;
+        outgoingGlobal = Boolean(targetIdentity) || segmentedValue(dom.studentConnectionMode) === 'global';
         if (!resolvedTarget && segmentedValue(dom.studentConnectionMode) === 'global') {
             const rawLink = dom.globalLinkInput.value.trim();
             if (!rawLink) {
@@ -601,7 +602,7 @@
             const endpoint = parsedLink ? parsedLink.searchParams.get('e') || '' : '';
             const token = parsedLink ? parsedLink.searchParams.get('t') || '' : '';
             const match = /^([^:]+):(\d{2,5})$/.exec(endpoint);
-            if (!/^\d{6}$/.test(linkCode) || !username || !token || !match) {
+            if (!/^(?:\d{6}|[A-Z2-9]{12})$/.test(linkCode) || !username || !token || !match) {
                 outgoingBusy = false;
                 syncOutgoingUi();
                 setStatus(statusElement, 'رابط الجلسة العالمية غير صالح.', 'err');
@@ -920,6 +921,7 @@
     }
 
     function renderHostSession(session) {
+        hostSession = session || null;
         if (!session) {
             hostTitle = 'جلسة الأستاذ';
             networkMode = 'local';
@@ -1048,10 +1050,17 @@
 
     function attachHostHandlers(socket) {
         socket.on('connect', () => {
-            socket.emit('host:register');
-            setStatus(dom.hostStatus, 'أنشئ رمزاً لاستقبال البث الحي', 'ok');
-            dom.generateBtn.disabled = false;
-            dom.generateBtn.textContent = 'توليد رمز';
+            socket.timeout(5000).emit('host:register', { secret: hostInfo && hostInfo.hostSecret }, (error, response) => {
+                if (error || !response || !response.ok) {
+                    dom.generateBtn.disabled = true;
+                    setStatus(dom.hostStatus,
+                        (response && response.message) || 'تعذر تسجيل واجهة الأستاذ؛ أعد تشغيل التطبيق.', 'err');
+                    return;
+                }
+                setStatus(dom.hostStatus, 'أنشئ رمزاً لاستقبال البث الحي', 'ok');
+                dom.generateBtn.disabled = false;
+                dom.generateBtn.textContent = 'توليد رمز';
+            });
         });
         socket.on('disconnect', () => {
             setStatus(dom.hostStatus, 'انقطع الاتصال بخدمة الاستقبال؛ جارٍ إعادة الاتصال.', 'err');
@@ -1133,11 +1142,17 @@
             setStatus(dom.selfShareStatus, 'خدمة الاستقبال غير جاهزة بعد.', 'err');
             return;
         }
+        // A global session checks the username and link token of everyone who joins,
+        // the teacher's own share included, so pass the session's own identity.
+        const selfIdentity = hostSession && hostSession.networkMode === 'global'
+            ? { username: hostSession.username, token: hostSession.relayToken }
+            : null;
         beginOutgoingShare(
             dom.generatedCode.textContent,
             'بث الأستاذ',
             { ip: '127.0.0.1', port: hostInfo.port },
-            dom.selfShareStatus
+            dom.selfShareStatus,
+            selfIdentity
         );
     });
 
@@ -1149,7 +1164,6 @@
             setStatus(dom.selfShareStatus, 'تم إيقاف مشاركة شاشتي.');
             return;
         }
-        outgoingGlobal = networkMode === 'global';
         dom.selfShareBtn.click();
     });
 

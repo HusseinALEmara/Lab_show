@@ -327,7 +327,11 @@ app.whenReady().then(async () => {
     app.quit();
 });
 
-ipcMain.handle('host-info', () => hostInfo);
+// hostInfo carries the host secret: hand it to the main window only, never to the floating player.
+ipcMain.handle('host-info', (event) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) return null;
+    return hostInfo;
+});
 ipcMain.handle('find-host', (_event, code) => findHostByCodeOnLan(String(code || '')));
 
 ipcMain.handle('find-global-host', async (_event, { code, username, relayUrl } = {}) => {

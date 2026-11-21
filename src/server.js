@@ -4,7 +4,6 @@ const dgram = require('node:dgram');
 const crypto = require('node:crypto');
 const express = require('express');
 const { Server } = require('socket.io');
-const { io: connectToRelay } = require('socket.io-client');
 
 const { createSessionStore } = require('./session-store');
 const { USERNAME_PATTERN } = require('./global-relay');
@@ -22,6 +21,18 @@ function safeCallback(callback, payload) {
 
 function isLoopbackAddress(address) {
     return address === '::1' || address === '127.0.0.1' || address === '::ffff:127.0.0.1';
+}
+
+function stripIpv6Prefix(address) {
+    return typeof address === 'string' && address.startsWith('::ffff:') ? address.slice(7) : address;
+}
+
+// Constant-time comparison of the host secret, so its value cannot be guessed byte by byte.
+function secretsMatch(expected, provided) {
+    if (typeof expected !== 'string' || typeof provided !== 'string') return false;
+    const a = Buffer.from(expected);
+    const b = Buffer.from(provided);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 function ipv4ToNumber(address) {
@@ -73,7 +84,9 @@ function broadcastUdp(socket, payload) {
     }
 }
 
-function probeCodeOnLan(code) {
+// onBound receives the probe's local UDP port, so this node's own responder can
+// recognise (and ignore) its own probe instead of reporting every code as taken.
+function probeCodeOnLan(code, onBound = () => {}) {
     return new Promise((resolve) => {
         const probe = dgram.createSocket('udp4');
         let done = false;
@@ -91,12 +104,16 @@ function probeCodeOnLan(code) {
         probe.on('error', () => finish(false));
         probe.bind(() => {
             probe.setBroadcast(true);
+            onBound(probe.address().port);
             broadcastUdp(probe, `LAB_SHOW_CHECK_CODE:${code}`);
         });
     });
 }
 
-function createLocalHostNode() {
+// hostSecret proves that a socket belongs to this computer's own Lab show window.
+// A loopback address alone is not enough: any web page open in a browser on the
+// same computer can also reach 127.0.0.1 and would otherwise take over the host role.
+function createLocalHostNode({ hostSecret = crypto.randomBytes(32).toString('hex') } = {}) {
     const app = express();
     const httpServer = http.createServer(app);
     const io = new Server(httpServer, { cors: { origin: '*' } });
@@ -108,7 +125,13 @@ function createLocalHostNode() {
     let expirationTimer = null;
     let warningTimer = null;
     let listeningPort = 0;
-    let relayClient = null;
+    let ownProbePort = null;
+
+    function isOwnProbe(rinfo) {
+        if (!ownProbePort || rinfo.port !== ownProbePort) return false;
+        const address = stripIpv6Prefix(rinfo.address);
+        return isLoopbackAddress(address) || getLocalIPs().includes(address);
+    }
 
     function isHost(socket) {
         return Boolean(hostSocketId && socket.id === hostSocketId && isLoopbackAddress(socket.handshake.address));
@@ -138,14 +161,6 @@ function createLocalHostNode() {
         for (const student of current.students) {
             sendToStudent(student.id, 'session:ended', { reason, message });
         }
-        if (relayClient) {
-            const client = relayClient;
-            relayClient = null;
-            client.timeout(1000).emit(
-                'relay:unregister', { code: current.code, token: current.relayToken },
-                () => client.disconnect()
-            );
-        }
         store.clear();
 
         if (hostSocketId) {
@@ -159,7 +174,8 @@ function createLocalHostNode() {
         for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
             const candidate = generateSessionCode();
             reservingCode = candidate;
-            const taken = await probeCodeOnLan(candidate);
+            const taken = await probeCodeOnLan(candidate, (port) => { ownProbePort = port; });
+            ownProbePort = null;
             if (!taken) {
                 reservingCode = null;
                 return candidate;
@@ -169,39 +185,14 @@ function createLocalHostNode() {
         return generateSessionCode();
     }
 
-    async function registerWithRelay({ code, username, relayUrl, endpoint, durationMinutes }) {
-        const url = relayUrl || process.env.LABSHOW_RELAY_URL || 'http://127.0.0.1:4477';
-        const client = connectToRelay(url, {
-            transports: ['websocket'], forceNew: true, reconnection: false, timeout: 5000
-        });
-        try {
-            await new Promise((resolve, reject) => {
-                client.once('connect', resolve);
-                client.once('connect_error', reject);
-            });
-            const response = await new Promise((resolve) => {
-                client.timeout(5000).emit('relay:register', {
-                    code, username, endpoint, durationMinutes
-                }, (error, reply) => resolve(
-                    error ? { ok: false, message: 'خادم المطابقة لم يستجب.' } : reply
-                ));
-            });
-            if (!response || !response.ok) {
-                client.disconnect();
-                return { ok: false, message: (response && response.message) || 'تعذر التسجيل في خادم المطابقة.' };
-            }
-            return { ok: true, client, token: response.token };
-        } catch (error) {
-            client.disconnect();
-            return { ok: false, message: 'تعذر الاتصال بخادم المطابقة العالمية.' };
-        }
-    }
-
     io.on('connection', (socket) => {
         socket.on('host:register', (payload, callback) => {
-            if (typeof payload === 'function') callback = payload;
-            if (!isLoopbackAddress(socket.handshake.address)) {
-                return safeCallback(callback, { ok: false, message: 'تسجيل واجهة الأستاذ مسموح من هذا الجهاز فقط.' });
+            if (typeof payload === 'function') {
+                callback = payload;
+                payload = {};
+            }
+            if (!isLoopbackAddress(socket.handshake.address) || !secretsMatch(hostSecret, payload && payload.secret)) {
+                return safeCallback(callback, { ok: false, message: 'تسجيل واجهة الأستاذ مسموح من نافذة التطبيق على هذا الجهاز فقط.' });
             }
             hostSocketId = socket.id;
             const current = store.serialize();
@@ -215,10 +206,10 @@ function createLocalHostNode() {
         });
 
         socket.on('host:create', async (payload = {}, callback) => {
-            if (!isLoopbackAddress(socket.handshake.address)) {
-                return safeCallback(callback, { ok: false, message: 'يجب إنشاء الجلسة من هذا الجهاز.' });
+            if (!isHost(socket)) {
+                return safeCallback(callback, { ok: false, message: 'يجب إنشاء الجلسة من نافذة التطبيق على هذا الجهاز.' });
             }
-            const { title, durationMinutes, networkMode, username, relayUrl, publicEndpoint, protocolVersion } = payload;
+            const { title, durationMinutes, networkMode, username, protocolVersion } = payload || {};
             const global = networkMode === 'global';
             if (global && !USERNAME_PATTERN.test(String(username || '').trim())) {
                 return safeCallback(callback, {
@@ -226,7 +217,6 @@ function createLocalHostNode() {
                     message: 'أدخل اسماً فريداً من 3 إلى 32 حرفاً أو رقماً للوضع العالمي.'
                 });
             }
-            hostSocketId = socket.id;
             if (store.session) endSession('replaced', 'تم استبدال الرمز برمز جديد.');
 
             const code = await reserveUniqueCode();
@@ -334,7 +324,7 @@ function createLocalHostNode() {
                 });
             }
             if (current && current.networkMode === 'global') {
-                if (String(username || '').trim() !== current.username || token !== current.relayToken) {
+                if (String(username || '').trim() !== current.username || !secretsMatch(current.relayToken, token)) {
                     return safeCallback(callback, {
                         ok: false,
                         message: 'اسم المستخدم أو رمز المطابقة غير صالح لهذه الجلسة.'
@@ -343,10 +333,7 @@ function createLocalHostNode() {
             }
             const result = store.join({ code: normalizeCode(code), title, socketId: socket.id });
             if (!result.ok) {
-                const message = result.reason === 'no-session'
-                    ? 'الرمز غير صحيح أو منتهي.'
-                    : 'الرمز غير صحيح أو منتهي.';
-                return safeCallback(callback, { ok: false, message });
+                return safeCallback(callback, { ok: false, message: 'الرمز غير صحيح أو منتهي.' });
             }
             emitState();
             safeCallback(callback, {
@@ -457,6 +444,7 @@ function createLocalHostNode() {
             if (text.startsWith('LAB_SHOW_CHECK_CODE:')) {
                 const candidate = text.slice('LAB_SHOW_CHECK_CODE:'.length).trim();
                 const current = store.serialize();
+                if (isOwnProbe(rinfo)) return;
                 if ((current && current.code === candidate) || reservingCode === candidate) {
                     udpSocket.send(Buffer.from(`LAB_SHOW_CODE_TAKEN:${candidate}`), rinfo.port, rinfo.address);
                 }
@@ -484,7 +472,7 @@ function createLocalHostNode() {
             httpServer.listen(0, '0.0.0.0', () => {
                 listeningPort = httpServer.address().port;
                 startUdpResponder();
-                resolve({ port: listeningPort, ips: getLocalIPs() });
+                resolve({ port: listeningPort, ips: getLocalIPs(), hostSecret });
             });
         }),
         stop: () => new Promise((resolve) => {
@@ -492,10 +480,6 @@ function createLocalHostNode() {
             expirationTimer = null;
             if (warningTimer) clearTimeout(warningTimer);
             warningTimer = null;
-            if (relayClient) {
-                relayClient.disconnect();
-                relayClient = null;
-            }
             if (udpSocket) {
                 try { udpSocket.close(); } catch { /* already closed */ }
                 udpSocket = null;
@@ -508,4 +492,10 @@ function createLocalHostNode() {
     };
 }
 
-module.exports = { createLocalHostNode, UDP_DISCOVERY_PORT };
+module.exports = {
+    createLocalHostNode,
+    UDP_DISCOVERY_PORT,
+    isOnLocalSubnet,
+    isLoopbackAddress,
+    secretsMatch
+};

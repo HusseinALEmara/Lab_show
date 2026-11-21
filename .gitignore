@@ -22,8 +22,8 @@ config.local.*
 .DS_Store
 Thumbs.db
 
-# Development-only files (not published)
-/tests/
+# Development-only files (not published; tests stay in the repository
+# but are left out of the installer by package.json "build.files")
 /PLAN.md
 
 # Obsolete/local files

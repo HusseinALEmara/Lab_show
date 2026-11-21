@@ -19,9 +19,13 @@ function contentType(filePath) {
     return CONTENT_TYPES[path.extname(filePath)] || 'application/octet-stream';
 }
 
+// A plain prefix test would also accept sibling folders such as "<ROOT>-other";
+// path.relative tells whether the target really lies inside ROOT.
 function safeResolve(relativePath) {
     const target = path.resolve(ROOT, '.' + relativePath);
-    return target.startsWith(ROOT) ? target : null;
+    const relative = path.relative(ROOT, target);
+    if (relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))) return target;
+    return null;
 }
 
 function readFile(filePath, encoding = null) {
@@ -30,11 +34,11 @@ function readFile(filePath, encoding = null) {
     });
 }
 
-async function buildPreviewHtml(signalingPort) {
+async function buildPreviewHtml(signalingPort, hostSecret) {
     const template = await readFile(path.join(ROOT, 'renderer', 'index.html'), 'utf8');
     const stub = `<script>
 window.electronAPI = {
-  getHostInfo: async () => ({ port: ${signalingPort}, ips: ['127.0.0.1'] }),
+  getHostInfo: async () => ({ port: ${signalingPort}, ips: ['127.0.0.1'], hostSecret: ${JSON.stringify(hostSecret)} }),
   findHostByCode: async () => ({ ip: '127.0.0.1', port: ${signalingPort} }),
   setFullScreen() {}, setWindowSizeMode() {}, showWindow() {},
   setOutgoingState() {}, setStudentControlEnabled() {},
@@ -55,7 +59,7 @@ async function main() {
         const urlPath = decodeURIComponent((request.url || '/').split('?')[0]);
         try {
             if (urlPath === '/preview' || urlPath === '/renderer/__harness.html') {
-                const html = await buildPreviewHtml(info.port);
+                const html = await buildPreviewHtml(info.port, info.hostSecret);
                 response.writeHead(200, { 'Content-Type': CONTENT_TYPES['.html'] });
                 response.end(html);
                 return;
@@ -94,7 +98,9 @@ async function main() {
     process.on('SIGTERM', shutdown);
 }
 
-main().catch((error) => {
+if (require.main === module) main().catch((error) => {
     console.error('تعذر تشغيل المعاينة:', error);
     process.exit(1);
 });
+
+module.exports = { safeResolve, ROOT };
