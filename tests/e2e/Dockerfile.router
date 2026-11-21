@@ -1,0 +1,6 @@
+# A home router for the end-to-end test: NAT (masquerade) to the "internet" side, and
+# optionally miniupnpd so devices behind it can open ports automatically (UPnP IGD).
+FROM ubuntu:24.04
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      nftables iproute2 miniupnpd miniupnpd-nftables procps \
+    && rm -rf /var/lib/apt/lists/*

@@ -342,7 +342,7 @@ app.whenReady().then(async () => {
         );
     });
 
-    hostNode = createLocalHostNode({ resolvePublicEndpoint: (port) => portMapper.map(port) });
+    hostNode = createLocalHostNode({ resolvePublicEndpoint: (port, protocol) => portMapper.map(port, protocol) });
     hostInfo = { ...(await hostNode.start()), iceServers: [{ urls: STUN_URLS }] };
     createWindowAndTray();
     // pathToFileURL encodes spaces in paths such as "C:\Users\Alwand Center\...".

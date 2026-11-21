@@ -39,6 +39,7 @@
 
     // viewer state
     let viewerPc = null;
+    let viewerRelayIce = []; // the owner's own relay, handed out after joining
     let viewerPending = [];
 
     function setStatus(key, type = '') {
@@ -398,7 +399,7 @@
         try {
             if (data.sdp && data.sdp.type === 'offer') {
                 if (viewerPc) viewerPc.close();
-                viewerPc = new RTCPeerConnection({ iceServers: iceServers() });
+                viewerPc = new RTCPeerConnection({ iceServers: [...iceServers(), ...viewerRelayIce] });
                 viewerPending = [];
                 viewerPc.ontrack = (event) => {
                     const stream = event.streams[0] || new MediaStream([event.track]);
@@ -467,6 +468,7 @@
                     return setStatus(I18n.errorKey(response, 'room.joinFailed'), 'err');
                 }
                 myId = response.viewerId;
+                viewerRelayIce = Array.isArray(response.iceServers) ? response.iceServers : [];
                 dom.roomTitle.textContent = response.room.title;
                 I18n.setText(dom.roomMeta, response.room.networkMode === 'global' ? 'recv.modeGlobal' : 'recv.modeLocal');
                 renderParticipants(response.room.participants);
@@ -500,7 +502,18 @@
     window.labshowRoomDebug = {
         role,
         get viewerId() { return myId; },
-        peerConnections: () => (role === 'owner' ? Array.from(peers.values(), (p) => p.pc) : [viewerPc].filter(Boolean))
+        peerConnections: () => (role === 'owner' ? Array.from(peers.values(), (p) => p.pc) : [viewerPc].filter(Boolean)),
+        // Owner only: the loudness (RMS) of each viewer's voice as the owner hears it.
+        voiceLevels: () => Array.from(peers.entries(), ([viewerId, peer]) => {
+            if (!peer.source) return { viewerId, rms: 0 };
+            if (!peer.analyser) {
+                peer.analyser = audioCtx.createAnalyser();
+                peer.source.connect(peer.analyser);
+            }
+            const samples = new Float32Array(peer.analyser.fftSize);
+            peer.analyser.getFloatTimeDomainData(samples);
+            return { viewerId, rms: Math.sqrt(samples.reduce((sum, x) => sum + x * x, 0) / samples.length) };
+        })
     };
 
     async function boot() {

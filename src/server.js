@@ -12,6 +12,7 @@ const { PROTOCOL_VERSION, isCompatible } = require('./protocol');
 const { normalizeCode, generateSessionCode } = require('./session-fields');
 const { isAllowedControlKey } = require('./keyboard-controls');
 const { buildLink } = require('./links');
+const { createTurnServer } = require('./turn-server');
 
 const UDP_DISCOVERY_PORT = 41234;
 const CODE_ATTEMPTS = 8;
@@ -145,12 +146,17 @@ function probeCodeOnLan(code, onBound = () => {}) {
 // A loopback address alone is not enough: any web page open in a browser on the
 // same computer can also reach 127.0.0.1.
 //
-// resolvePublicEndpoint(port) is asked for an internet-reachable address when a
-// global code is made (the desktop app maps a router port through UPnP). It returns
-// { ip, port, reachable, reason } or null.
+// resolvePublicEndpoint(port, protocol) is asked for an internet-reachable address
+// when a global code is made (the desktop app maps a router port through UPnP). It
+// returns { ip, port, reachable, reason } or null.
+//
+// For global sessions the node also runs a TURN relay (src/turn-server.js) on a UDP
+// port mapped the same way: remote devices whose router blocks a direct path send
+// their media to it, and it hands the media to this device only.
 function createLocalHostNode({
     hostSecret = crypto.randomBytes(32).toString('hex'),
-    resolvePublicEndpoint = null
+    resolvePublicEndpoint = null,
+    turn = true
 } = {}) {
     const app = express();
     const httpServer = http.createServer(app);
@@ -167,6 +173,9 @@ function createLocalHostNode({
     let roomTimer = null;
     let listeningPort = 0;
     let ownProbePort = null;
+    let turnServer = null;
+    let sessionRelay = null; // { username, iceServers } for the global receiving session
+    let roomRelay = null; // same for the global public broadcast
 
     function isOwnProbe(rinfo) {
         if (!ownProbePort || rinfo.port !== ownProbePort) return false;
@@ -185,6 +194,30 @@ function createLocalHostNode({
     function isRoomOwner(socket) {
         return Boolean(roomOwnerSocketId && socket.id === roomOwnerSocketId &&
             isLoopbackAddress(socket.handshake.address));
+    }
+
+    // Opens this device's relay for one global session or room: random credentials, and
+    // the relay's UDP port mapped on the router. Returns the ICE servers to hand to
+    // remote devices once they have proved they hold the link, or null.
+    async function openRelay() {
+        if (!turnServer || typeof resolvePublicEndpoint !== 'function') return null;
+        try {
+            const result = await resolvePublicEndpoint(turnServer.port, 'UDP');
+            if (!result || !result.reachable) return null;
+            const username = `ls-${crypto.randomBytes(6).toString('hex')}`;
+            const credential = crypto.randomBytes(18).toString('base64url');
+            turnServer.addUser(username, credential);
+            return {
+                username,
+                iceServers: [{ urls: [`turn:${result.ip}:${result.port}?transport=udp`], username, credential }]
+            };
+        } catch (error) {
+            return null;
+        }
+    }
+
+    function closeRelay(relay) {
+        if (relay && turnServer) turnServer.removeUser(relay.username);
     }
 
     async function reachFor(networkMode) {
@@ -231,6 +264,8 @@ function createLocalHostNode({
             sendToStudent(student.id, 'session:ended', { reason, message });
         }
         store.clear();
+        closeRelay(sessionRelay);
+        sessionRelay = null;
 
         if (hostSocketId) {
             io.to(hostSocketId).emit('session:state', null);
@@ -277,6 +312,8 @@ function createLocalHostNode({
             }
         }
         rooms.clear();
+        closeRelay(roomRelay);
+        roomRelay = null;
         if (roomOwnerSocketId) io.to(roomOwnerSocketId).emit('room:state', null);
     }
 
@@ -311,6 +348,7 @@ function createLocalHostNode({
             const code = await reserveUniqueCode();
             const { endpoint, reachability } = await reachFor(global ? 'global' : 'local');
             const relayToken = global ? generateSessionCode(12) : '';
+            if (global && reachability === 'internet') sessionRelay = await openRelay();
             const globalUrl = buildLink({
                 kind: 'send', mode: global ? 'global' : 'local', code, endpoint, token: relayToken, username: name
             });
@@ -409,7 +447,9 @@ function createLocalHostNode({
                 ok: true,
                 studentId: result.student.id,
                 networkMode: store.serialize().networkMode,
-                expiresAt: store.serialize().expiresAt
+                expiresAt: store.serialize().expiresAt,
+                // Only after the link token was checked (global sessions).
+                iceServers: store.isGlobal() && sessionRelay ? sessionRelay.iceServers : []
             });
         });
 
@@ -510,6 +550,7 @@ function createLocalHostNode({
             const code = await reserveUniqueCode();
             const { endpoint, reachability } = await reachFor(global ? 'global' : 'local');
             const token = generateSessionCode(12);
+            if (global && reachability === 'internet') roomRelay = await openRelay();
             const link = buildLink({ kind: 'room', mode: global ? 'global' : 'local', code, endpoint, token });
             const room = rooms.create({
                 code, title, networkMode: global ? 'global' : 'local',
@@ -557,7 +598,8 @@ function createLocalHostNode({
                     networkMode: room.networkMode,
                     participants: room.participants,
                     comments: room.comments
-                }
+                },
+                iceServers: room.networkMode === 'global' && roomRelay ? roomRelay.iceServers : []
             });
             if (roomOwnerSocketId) {
                 io.to(roomOwnerSocketId).emit('room:viewer-joined', {
@@ -655,10 +697,23 @@ function createLocalHostNode({
     return {
         start: () => new Promise((resolve, reject) => {
             httpServer.once('error', reject);
-            httpServer.listen(0, '0.0.0.0', () => {
+            httpServer.listen(0, '0.0.0.0', async () => {
                 listeningPort = httpServer.address().port;
                 startUdpResponder();
-                resolve({ port: listeningPort, ips: getLocalIPs(), hostSecret });
+                if (turn) {
+                    const relayAddress = getLocalIPs()[0] || '127.0.0.1';
+                    turnServer = createTurnServer({
+                        relayAddress,
+                        // Relay to this device only: never an open relay.
+                        isAllowedPeer: (ip) => ip === '127.0.0.1' || getLocalIPs().includes(ip)
+                    });
+                    try {
+                        await turnServer.start();
+                    } catch (error) {
+                        turnServer = null;
+                    }
+                }
+                resolve({ port: listeningPort, ips: getLocalIPs(), hostSecret, turnPort: turnServer ? turnServer.port : 0 });
             });
         }),
         stop: () => new Promise((resolve) => {
@@ -671,6 +726,10 @@ function createLocalHostNode({
             if (udpSocket) {
                 try { udpSocket.close(); } catch { /* already closed */ }
                 udpSocket = null;
+            }
+            if (turnServer) {
+                turnServer.stop();
+                turnServer = null;
             }
             io.close();
             if (httpServer.listening) httpServer.close(() => resolve());

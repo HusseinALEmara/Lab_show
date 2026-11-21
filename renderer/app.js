@@ -65,6 +65,7 @@
     let outQualityTimer = null;
     let outQualityController = null;
     let outgoingGlobal = false;
+    let outgoingRelayIce = []; // the receiver's own relay, handed out after joining
     let outgoingRequestId = 0;
     let joinedStudentId = null;
     let outgoingTargetCode = '';
@@ -273,7 +274,7 @@
         stopOutgoingViewing();
         const requestId = outgoingRequestId;
         const socket = outSocket;
-        const pc = new RTCPeerConnection({ iceServers: iceServersFor(outgoingGlobal) });
+        const pc = new RTCPeerConnection({ iceServers: [...iceServersFor(outgoingGlobal), ...outgoingRelayIce] });
         outPC = pc;
         outStream.getTracks().forEach((track) => pc.addTrack(track, outStream));
 
@@ -356,6 +357,7 @@
         isPausedOutgoing = false;
         outgoingBusy = false;
         outgoingGlobal = false;
+        outgoingRelayIce = [];
         permissionPending = false;
         permissionRequestId += 1;
         setLocalPermission(false);
@@ -377,6 +379,7 @@
                     return;
                 }
                 outgoingGlobal = outgoingGlobal || response.networkMode === 'global';
+                outgoingRelayIce = Array.isArray(response.iceServers) ? response.iceServers : [];
                 try {
                     outStream = await navigator.mediaDevices.getDisplayMedia({
                         video: {

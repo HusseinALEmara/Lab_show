@@ -381,15 +381,31 @@ async function startNodeWith(resolvePublicEndpoint) {
 
 test('global code: the link holds the public address the router opened', async () => {
     const asked = [];
-    const ctx = await startNodeWith(async (port) => {
-        asked.push(port);
-        return { reachable: true, ip: '203.0.113.9', port: 40404 };
+    const ctx = await startNodeWith(async (port, protocol = 'TCP') => {
+        asked.push([port, protocol]);
+        return { reachable: true, ip: '203.0.113.9', port: protocol === 'UDP' ? 40405 : 40404 };
     });
     try {
         const { session } = await teacherWithSession(ctx, { networkMode: 'global' });
-        assert.deepEqual(asked, [ctx.info.port], 'the port asked for is this node\'s own port');
+        assert.deepEqual(asked, [[ctx.info.port, 'TCP'], [ctx.info.turnPort, 'UDP']],
+            'this node\'s own signaling port (TCP) and its relay port (UDP)');
         assert.equal(new URL(session.globalUrl).searchParams.get('e'), '203.0.113.9:40404');
         assert.equal(session.reachability, 'internet');
+
+        // A device that proves it holds the link receives this device's relay, with
+        // credentials of this session only; the relay is on the opened UDP port.
+        const token = new URL(session.globalUrl).searchParams.get('t');
+        const joiner = await ctx.open();
+        const joined = await ask(joiner, 'student:join', { code: session.code, title: 'x', token, protocolVersion: 4 });
+        assert.equal(joined.ok, true);
+        assert.equal(joined.iceServers.length, 1);
+        assert.deepEqual(joined.iceServers[0].urls, ['turn:203.0.113.9:40405?transport=udp']);
+        assert.match(joined.iceServers[0].username, /^ls-[0-9a-f]{12}$/);
+        assert.ok(joined.iceServers[0].credential.length >= 20);
+        const refused = await ctx.open();
+        const noToken = await ask(refused, 'student:join', { code: session.code, title: 'x' });
+        assert.equal(noToken.ok, false);
+        assert.equal(noToken.iceServers, undefined, 'no relay credentials without the link');
     } finally {
         await ctx.close();
     }

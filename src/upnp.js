@@ -164,7 +164,7 @@ function createPortMapper({
     random = Math.random
 } = {}) {
     let gateway = null;
-    let mapping = null; // { internalPort, externalPort, ip, renewTimer }
+    const mappings = new Map(); // "TCP:port" -> { protocol, internalPort, externalPort, ip, renewTimer }
 
     async function findGateway() {
         if (gateway) return gateway;
@@ -174,11 +174,11 @@ function createPortMapper({
         return gateway;
     }
 
-    async function addMapping(externalPort, internalPort, internalClient) {
+    async function addMapping(externalPort, internalPort, internalClient, protocol) {
         const args = (lease) => ({
             NewRemoteHost: '',
             NewExternalPort: externalPort,
-            NewProtocol: 'TCP',
+            NewProtocol: protocol,
             NewInternalPort: internalPort,
             NewInternalClient: internalClient,
             NewEnabled: 1,
@@ -196,11 +196,11 @@ function createPortMapper({
         }
     }
 
-    // Maps internalPort and returns { reachable, ip, port, reason }.
-    async function map(internalPort) {
-        if (mapping && mapping.internalPort === internalPort) {
-            return { reachable: true, ip: mapping.ip, port: mapping.externalPort };
-        }
+    // Maps internalPort (TCP or UDP) and returns { reachable, ip, port, reason }.
+    async function map(internalPort, protocol = 'TCP') {
+        protocol = protocol === 'UDP' ? 'UDP' : 'TCP';
+        const existing = mappings.get(`${protocol}:${internalPort}`);
+        if (existing) return { reachable: true, ip: existing.ip, port: existing.externalPort };
         try {
             await findGateway();
             const ip = xmlValue(await soap(gateway, 'GetExternalIPAddress'), 'NewExternalIPAddress');
@@ -215,14 +215,15 @@ function createPortMapper({
             let lastError = null;
             for (const externalPort of candidates) {
                 try {
-                    const lease = await addMapping(externalPort, internalPort, internalClient);
-                    mapping = { internalPort, externalPort, ip, renewTimer: null };
+                    const lease = await addMapping(externalPort, internalPort, internalClient, protocol);
+                    const mapping = { protocol, internalPort, externalPort, ip, renewTimer: null };
                     if (lease) {
                         mapping.renewTimer = setInterval(() => {
-                            addMapping(externalPort, internalPort, internalClient).catch(() => {});
+                            addMapping(externalPort, internalPort, internalClient, protocol).catch(() => {});
                         }, (lease / 2) * 1000);
                         mapping.renewTimer.unref?.();
                     }
+                    mappings.set(`${protocol}:${internalPort}`, mapping);
                     return { reachable: true, ip, port: externalPort };
                 } catch (error) {
                     lastError = error;
@@ -237,20 +238,21 @@ function createPortMapper({
     }
 
     async function release() {
-        if (!mapping) return;
-        const current = mapping;
-        mapping = null;
-        if (current.renewTimer) clearInterval(current.renewTimer);
-        try {
-            await soap(gateway, 'DeletePortMapping', {
-                NewRemoteHost: '', NewExternalPort: current.externalPort, NewProtocol: 'TCP'
-            });
-        } catch (error) {
-            /* the router may already have dropped it */
+        const current = Array.from(mappings.values());
+        mappings.clear();
+        for (const mapping of current) {
+            if (mapping.renewTimer) clearInterval(mapping.renewTimer);
+            try {
+                await soap(gateway, 'DeletePortMapping', {
+                    NewRemoteHost: '', NewExternalPort: mapping.externalPort, NewProtocol: mapping.protocol
+                });
+            } catch (error) {
+                /* the router may already have dropped it */
+            }
         }
     }
 
-    return { map, release, get mapping() { return mapping && { ...mapping, renewTimer: undefined }; } };
+    return { map, release, get mappings() { return Array.from(mappings.values(), (m) => ({ ...m, renewTimer: undefined })); } };
 }
 
 module.exports = { createPortMapper, isNonPublicIPv4, localAddressFor, SEARCH_TARGETS };

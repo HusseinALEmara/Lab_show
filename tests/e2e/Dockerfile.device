@@ -1,0 +1,10 @@
+# A "computer" for the end-to-end test: Electron's runtime libraries, a virtual
+# display, a moving clock on screen (so the shared screen changes), and iproute2 to
+# send its traffic through its home router. Node.js and the app are mounted at run time.
+FROM ubuntu:24.04
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      xvfb x11-apps iproute2 ca-certificates \
+      libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 libgtk-3-0t64 libgbm1 \
+      libasound2t64 libxss1 libxshmfence1 libxcomposite1 libxdamage1 libxrandr2 libxkbcommon0 \
+      libpango-1.0-0 libcairo2 libnotify4 libsecret-1-0 dbus-x11 \
+    && rm -rf /var/lib/apt/lists/*
