@@ -30,13 +30,14 @@ async function main() {
     assert.match(link, /^https:\/\/[a-z0-9-]+\.trycloudflare\.com\/j\?/);
     assert.equal(created.session.reachability, 'tunnel');
 
-    // DNS for a fresh quick-tunnel name can take a few seconds to spread.
+    // The app hands out the link only once Cloudflare's resolver knows the name, so it
+    // must open at once; a few retries cover the edge connection warming up.
     let page = null;
-    for (let i = 0; i < 30 && !page; i++) {
+    for (let i = 0; i < 15 && !page; i++) {
         try {
             const response = await fetch(link);
             if (response.ok) page = await response.text();
-        } catch (error) { /* not yet */ }
+        } catch (error) { console.log('retry:', error.cause ? error.cause.code : error.message); }
         if (!page) await new Promise((resolve) => setTimeout(resolve, 2000));
     }
     assert.ok(page && page.includes('Lab show') && page.includes(created.session.code), 'the link opens the device\'s page');

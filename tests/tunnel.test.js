@@ -26,8 +26,13 @@ test('quick tunnel: starts cloudflared towards the local port and reads its publ
         'INF |  https://silver-lake-moon.trycloudflare.com  |',
         'INF Registered tunnel connection connIndex=0'
     ]);
-    const tunnel = createTunnel({ binary: 'cloudflared', localPort: 47800, spawnFn: fake.spawnFn });
+    const checked = [];
+    const tunnel = createTunnel({
+        binary: 'cloudflared', localPort: 47800, spawnFn: fake.spawnFn,
+        dnsCheck: async (host) => { checked.push(host); return true; }
+    });
     assert.equal(await tunnel.start(), 'https://silver-lake-moon.trycloudflare.com');
+    assert.deepEqual(checked, ['silver-lake-moon.trycloudflare.com'], 'handed out only after its name resolves');
     assert.deepEqual(fake.calls[0].args, ['tunnel', '--no-autoupdate', '--url', 'http://127.0.0.1:47800']);
     assert.equal(await tunnel.start(), 'https://silver-lake-moon.trycloudflare.com', 'started once, then reused');
     assert.equal(fake.calls.length, 1);
@@ -44,6 +49,19 @@ test('named tunnel (institution domain): runs with the token and uses the config
     assert.equal(await tunnel.start(), 'https://live.university.edu');
     assert.deepEqual(fake.calls[0].args, ['tunnel', '--no-autoupdate', 'run', '--token', 'eyJ-token']);
     tunnel.stop();
+});
+
+test('a quick tunnel is not handed out before it is registered and its name resolves', async () => {
+    const onlyUrl = createTunnel({
+        binary: 'x', localPort: 1, startTimeoutMs: 300, dnsCheck: async () => true,
+        spawnFn: fakeSpawn(['INF |  https://early-bird.trycloudflare.com  |']).spawnFn
+    });
+    await assert.rejects(onlyUrl.start(), /in time/, 'no "registered" line yet: not ready');
+    const noDns = createTunnel({
+        binary: 'x', localPort: 1, dnsCheck: async () => false,
+        spawnFn: fakeSpawn(['INF |  https://ghost-name.trycloudflare.com  |', 'INF Registered tunnel connection connIndex=0']).spawnFn
+    });
+    await assert.rejects(noDns.start(), /DNS/);
 });
 
 test('tunnel failures are reported, not hidden', async () => {
