@@ -25,7 +25,9 @@ const fs = require('node:fs');
 // program): settings, .env, browser caches, logs, crash reports, temporary files and the
 // back end's work folder. Nothing else is installed on the system; uninstalling removes
 // it all, and updates keep it (build/installer.nsh).
-const DEFAULT_USER_DATA = app.getPath('userData');
+// Asking Electron for its default userData folder creates it, so its path is built by
+// hand (the folder older versions used, read once to carry settings over).
+const DEFAULT_USER_DATA = path.join(app.getPath('appData'), app.getName());
 const DATA_ROOT = chooseDataRoot({ isPackaged: app.isPackaged, execPath: process.execPath });
 if (DATA_ROOT) {
     const paths = dataPaths(DATA_ROOT);
@@ -451,6 +453,11 @@ app.on('before-quit', () => {
 app.on('window-all-closed', () => app.quit());
 
 app.whenReady().then(async () => {
+    // Chromium may still create the default folder at start; remove it when empty
+    // (rmdir refuses non-empty folders, so nothing is ever deleted).
+    if (DATA_ROOT) {
+        try { fs.rmdirSync(DEFAULT_USER_DATA); } catch { /* absent or not empty */ }
+    }
     loadSettings();
     session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
         desktopCapturer.getSources({ types: ['screen'] }).then(
