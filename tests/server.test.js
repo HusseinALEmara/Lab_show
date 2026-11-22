@@ -593,3 +593,131 @@ test('a device can receive private broadcasts and run a public broadcast at the 
         await ctx.close();
     }
 });
+
+// ---------- real links, the landing page, and the WebSocket media fallback ----------
+
+test('global code with a tunnel: the link is the device\'s https address and opens its page', async () => {
+    const ctx = await startNodeWithOptions({ resolveWebUrl: async () => 'https://quiet-sun.trycloudflare.com' });
+    try {
+        const { session } = await teacherWithSession(ctx, { networkMode: 'global' });
+        assert.ok(session.globalUrl.startsWith('https://quiet-sun.trycloudflare.com/j?'), session.globalUrl);
+        assert.equal(session.reachability, 'tunnel');
+        // The same page the tunnel serves, asked from this node directly.
+        const path = new URL(session.globalUrl).pathname + new URL(session.globalUrl).search;
+        const response = await fetch(`http://127.0.0.1:${ctx.info.port}${path}`);
+        const html = await response.text();
+        assert.equal(response.status, 200);
+        assert.match(response.headers.get('content-security-policy'), /default-src 'none'/);
+        assert.ok(html.includes(session.code) && html.includes('Lab show'));
+        assert.ok(!html.includes(new URL(session.globalUrl).searchParams.get('t')), 'the page never shows the token');
+        const injected = await (await fetch(`http://127.0.0.1:${ctx.info.port}/j?c=<script>alert(1)</script>`)).text();
+        assert.ok(!injected.includes('<script>alert'), 'the page shows only letters and digits of the code');
+    } finally {
+        await ctx.close();
+    }
+});
+
+async function startNodeWithOptions(options) {
+    const node = createLocalHostNode(options);
+    const info = await node.start();
+    const sockets = [];
+    return {
+        info,
+        open: async () => { const s = await connect(info.port); sockets.push(s); return s; },
+        close: async () => { sockets.forEach((s) => s.disconnect()); await node.stop(); }
+    };
+}
+
+test('fallback media (private): encoded chunks go from the sender to this device\'s window only', async () => {
+    const ctx = await startNode();
+    try {
+        const { teacher, session } = await teacherWithSession(ctx);
+        const a = await sharingStudent(ctx, session.code, 'A');
+        const b = await sharingStudent(ctx, session.code, 'B');
+        const transport = nextEvent(teacher, 'student:transport');
+        a.student.emit('student:transport', { mode: 'ws' });
+        assert.deepEqual(await transport, { studentId: a.id, mode: 'ws' });
+
+        const chunk = Buffer.alloc(300 * 1024, 1);
+        const got = new Promise((resolve) => teacher.once('media:video', (meta, data) => resolve({ meta, size: data.byteLength })));
+        const bSees = receivesWithin(b.student, 'media:video');
+        a.student.emit('student:media', { type: 'key', ts: 10, codec: 'vp8' }, chunk);
+        const received = await got;
+        assert.deepEqual(received.meta, { studentId: a.id, type: 'key', ts: 10, codec: 'vp8' });
+        assert.equal(received.size, chunk.length);
+        assert.equal(await bSees, false);
+
+        // The window asks for a key frame; only that sender is asked.
+        const keyAsked = nextEvent(a.student, 'media:keyframe');
+        const bAsked = receivesWithin(b.student, 'media:keyframe');
+        teacher.emit('host:keyframe', { studentId: a.id });
+        assert.deepEqual(await keyAsked, { studentId: a.id });
+        assert.equal(await bAsked, false);
+
+        // Malformed or paused media is dropped.
+        const nothing = receivesWithin(teacher, 'media:video');
+        a.student.emit('student:media', { type: 'evil', ts: 1 }, chunk);
+        a.student.emit('student:media', { type: 'key', ts: 'x' }, chunk);
+        a.student.emit('student:pause');
+        a.student.emit('student:media', { type: 'key', ts: 2 }, chunk);
+        assert.equal(await nothing, false);
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('fallback media (public broadcast): picture to WebSocket viewers only, voices routed per viewer', async () => {
+    const ctx = await startNode();
+    try {
+        const { owner, room } = await ownerWithRoom(ctx);
+        const wsViewer = await viewer(ctx, room, 'WS');
+        const rtcViewer = await viewer(ctx, room, 'RTC');
+        const told = nextEvent(owner, 'room:viewer-transport');
+        wsViewer.socket.emit('room:transport', { mode: 'ws' });
+        assert.deepEqual(await told, { viewerId: wsViewer.id, mode: 'ws' });
+
+        const frame = new Promise((resolve) => wsViewer.socket.once('room:video', (meta, data) => resolve({ meta, size: data.byteLength })));
+        const rtcSees = receivesWithin(rtcViewer.socket, 'room:video');
+        owner.emit('room:video', { type: 'key', ts: 5, codec: 'vp8' }, Buffer.alloc(1000, 2));
+        assert.deepEqual((await frame).meta, { type: 'key', ts: 5, codec: 'vp8' });
+        assert.equal(await rtcSees, false, 'WebRTC viewers get the picture over WebRTC, not here');
+
+        // A viewer's microphone reaches the owner, marked with who spoke.
+        const voice = new Promise((resolve) => owner.once('room:audio', (meta) => resolve(meta)));
+        wsViewer.socket.emit('room:audio', { type: 'audio', ts: 7, sr: 48000, ch: 1 }, Buffer.alloc(80, 3));
+        assert.deepEqual(await voice, { from: wsViewer.id, ts: 7, sr: 48000, ch: 1 });
+
+        // The owner's mix for one viewer goes to that viewer only.
+        const mix = new Promise((resolve) => wsViewer.socket.once('room:audio', (meta) => resolve(meta)));
+        const rtcHears = receivesWithin(rtcViewer.socket, 'room:audio');
+        owner.emit('room:audio-to', { to: wsViewer.id, type: 'audio', ts: 8, sr: 48000, ch: 1 }, Buffer.alloc(80, 4));
+        assert.deepEqual(await mix, { from: 'owner', ts: 8, sr: 48000, ch: 1 });
+        assert.equal(await rtcHears, false);
+
+        // Only the owner may send the picture.
+        const forged = receivesWithin(wsViewer.socket, 'room:video');
+        rtcViewer.socket.emit('room:video', { type: 'key', ts: 9 }, Buffer.alloc(10));
+        assert.equal(await forged, false);
+
+        // Key frame requests from a viewer reach the owner.
+        const keyRequest = nextEvent(owner, 'room:keyframe-request');
+        wsViewer.socket.emit('room:keyframe');
+        assert.deepEqual(await keyRequest, { viewerId: wsViewer.id });
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('the institution\'s own TURN server is handed to joining devices with this device\'s relay', async () => {
+    const extra = [{ urls: ['turns:turn.university.edu:443?transport=tcp'], username: 'u', credential: 'c' }];
+    const ctx = await startNodeWithOptions({ extraIceServers: extra });
+    try {
+        const { session } = await teacherWithSession(ctx, { networkMode: 'global' });
+        const token = new URL(session.globalUrl).searchParams.get('t');
+        const joiner = await ctx.open();
+        const joined = await ask(joiner, 'student:join', { code: session.code, title: 'x', token, protocolVersion: 4 });
+        assert.deepEqual(joined.iceServers, extra);
+    } finally {
+        await ctx.close();
+    }
+});

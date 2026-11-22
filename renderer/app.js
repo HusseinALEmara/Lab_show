@@ -26,7 +26,7 @@
     };
 
     const ids = [
-        'liveStatusBar', 'liveStatusText', 'langToggle',
+        'liveStatusBar', 'liveStatusText',
         'codeCard', 'broadcastCard', 'codeInput', 'sendLinkInput', 'joinTitleInput',
         'approveCodeBtn', 'cancelCodeBtn', 'outgoingStatus', 'studentIdentity', 'broadcastStatusPill',
         'titleDisplayBtn', 'titleDisplayText', 'titleEditor', 'broadcastTitleInput', 'titleUpdateBtn',
@@ -66,6 +66,10 @@
     let outQualityController = null;
     let outgoingGlobal = false;
     let outgoingRelayIce = []; // the receiver's own relay, handed out after joining
+    let outWsSender = null; // WebSocket fallback, when no direct WebRTC path exists
+    let outFallbackTimer = null;
+    const DIRECT_TIMEOUT_MS = 8000;
+    const WsMedia = window.LabShowWsMedia;
     let outgoingRequestId = 0;
     let joinedStudentId = null;
     let outgoingTargetCode = '';
@@ -123,7 +127,6 @@
 
     bindSegmented(dom.networkModeSelect);
     bindSegmented(dom.pubNetworkMode);
-    dom.langToggle.addEventListener('click', () => I18n.toggle());
     I18n.onChange(() => {
         syncOutgoingUi();
         renderHostSession(hostSession);
@@ -245,6 +248,7 @@
         isPausedOutgoing = next;
         const track = outStream.getVideoTracks()[0];
         if (track) track.enabled = !isPausedOutgoing;
+        if (outWsSender) outWsSender.setPaused(isPausedOutgoing);
         outSocket.emit(isPausedOutgoing ? 'student:pause' : 'student:resume');
         syncOutgoingUi();
     }
@@ -255,6 +259,10 @@
 
     function stopOutgoingViewing() {
         outgoingRequestId += 1;
+        if (outFallbackTimer) {
+            clearTimeout(outFallbackTimer);
+            outFallbackTimer = null;
+        }
         if (outQualityTimer) {
             clearInterval(outQualityTimer);
             outQualityTimer = null;
@@ -269,8 +277,28 @@
         outPendingIce = [];
     }
 
+    // No direct path (UDP blocked, both sides behind strict NATs): send the screen over
+    // the session's WebSocket instead, through whichever address reached the receiver.
+    function switchToWebSocket() {
+        if (outWsSender || !outStream || !outSocket || !WsMedia) return;
+        stopOutgoingViewing();
+        const socket = outSocket;
+        socket.emit('student:transport', { mode: 'ws' });
+        outWsSender = WsMedia.createVideoSender({
+            track: outStream.getVideoTracks()[0],
+            send: (meta, data) => socket.emit('student:media', meta, data),
+            isBacklogged: WsMedia.backlogOf(socket)
+        });
+        outWsSender.setPaused(isPausedOutgoing);
+        setStatus(dom.outgoingStatus, 'send.fallback', 'ok');
+    }
+
     async function startOutgoingViewing(studentId) {
         if (!isSharingOutgoing || isPausedOutgoing || !outStream || !outSocket || studentId !== joinedStudentId) return;
+        if (outWsSender) {
+            outWsSender.requestKeyframe();
+            return;
+        }
         stopOutgoingViewing();
         const requestId = outgoingRequestId;
         const socket = outSocket;
@@ -332,12 +360,31 @@
                 return;
             }
             socket.emit('student:offer', { studentId, offer });
+            pc.onconnectionstatechange = () => {
+                if (outPC !== pc) return;
+                if (pc.connectionState === 'failed') switchToWebSocket();
+                // A path that broke (the network changed, UDP got blocked) and does not
+                // come back within 10 s is replaced too.
+                else if (pc.connectionState === 'disconnected') {
+                    setTimeout(() => {
+                        if (outPC === pc && pc.connectionState !== 'connected') switchToWebSocket();
+                    }, 10000);
+                }
+            };
+            outFallbackTimer = setTimeout(() => {
+                outFallbackTimer = null;
+                if (outPC === pc && pc.connectionState !== 'connected') switchToWebSocket();
+            }, DIRECT_TIMEOUT_MS);
         } catch (error) {
             console.error('offer', error);
         }
     }
 
     function stopOutgoingShare(notifyRemote = true) {
+        if (outWsSender) {
+            outWsSender.stop();
+            outWsSender = null;
+        }
         if (outSocket && outSocket.connected) {
             if (isStudentControlEnabled) outSocket.emit('student:permission', { enabled: false });
             if (notifyRemote && isSharingOutgoing) outSocket.emit('student:stop');
@@ -365,8 +412,8 @@
     }
 
     function attachOutgoingHandlers(socket, code, broadcastTitle, identity) {
-        socket.on('connect', () => {
-            socket.timeout(5000).emit('student:join', {
+        const join = () => {
+            socket.timeout(8000).emit('student:join', {
                 code,
                 title: broadcastTitle,
                 username: identity ? identity.username : undefined,
@@ -420,12 +467,10 @@
                     setStatus(dom.outgoingStatus, 'send.captureFailed', 'err');
                 }
             });
-        });
+        };
 
-        socket.on('connect_error', () => {
-            if (outSocket !== socket) return;
-            stopOutgoingShare(false);
-            setStatus(dom.outgoingStatus, 'send.connectFailed', 'err');
+        socket.on('media:keyframe', () => {
+            if (outWsSender) outWsSender.requestKeyframe();
         });
         socket.on('preview:start', ({ studentId }) => {
             if (studentId === joinedStudentId) startOutgoingViewing(studentId).catch(console.error);
@@ -484,6 +529,23 @@
                 setStatus(dom.outgoingStatus, 'send.disconnected', 'err');
             }
         });
+        join();
+    }
+
+    // Opens a session connection on the first address that answers: the direct one
+    // first, then the device's web address (its tunnel), which passes firewalls that
+    // only allow port 443.
+    async function connectFirst(urls) {
+        for (const url of urls) {
+            const socket = io(url, { timeout: 6000, reconnection: false, forceNew: true });
+            const ok = await new Promise((resolve) => {
+                socket.once('connect', () => resolve(true));
+                socket.once('connect_error', () => resolve(false));
+            });
+            if (ok) return socket;
+            socket.close();
+        }
+        return null;
     }
 
     async function beginOutgoingShare() {
@@ -502,7 +564,7 @@
             if (code && code !== parsed.code) return setStatus(dom.outgoingStatus, 'send.codeMismatch', 'err');
             code = parsed.code;
             dom.codeInput.value = code;
-            target = { ip: parsed.host, port: parsed.port };
+            target = { urls: Links.connectTargets(parsed) };
             global = parsed.mode === 'global';
             if (global) identity = { username: parsed.username, token: parsed.token };
         }
@@ -525,17 +587,20 @@
                 syncOutgoingUi();
                 return setStatus(dom.outgoingStatus, 'send.notFound', 'err');
             }
+            target = { urls: [`http://${target.ip}:${target.port}`] };
         }
         setStatus(dom.outgoingStatus, 'send.connecting');
         stopOutgoingShare(true);
         outgoingBusy = true;
         outgoingGlobal = global;
         syncOutgoingUi();
-        outSocket = io(`http://${target.ip}:${target.port}`, {
-            timeout: 5000,
-            reconnectionDelay: 500,
-            reconnectionDelayMax: 2000
-        });
+        const socket = await connectFirst(target.urls);
+        if (!socket) {
+            outgoingBusy = false;
+            syncOutgoingUi();
+            return setStatus(dom.outgoingStatus, 'send.connectFailed', 'err');
+        }
+        outSocket = socket;
         attachOutgoingHandlers(outSocket, code, dom.joinTitleInput.value, identity);
     }
 
@@ -616,8 +681,9 @@
         const result = await api.openRoom({
             role: 'viewer',
             lang: I18n.lang,
-            host: parsed.host,
-            port: parsed.port,
+            host: parsed.host || undefined,
+            port: parsed.port || undefined,
+            web: parsed.webUrl || undefined,
             code,
             token: parsed.token,
             mode: parsed.mode,
@@ -631,6 +697,7 @@
 
     function closeIncomingPeer(studentId) {
         const entry = incoming.get(studentId);
+        if (entry && entry.ws) entry.ws.stop();
         if (entry && entry.pc) {
             entry.pc.ontrack = null;
             entry.pc.onicecandidate = null;
@@ -922,7 +989,7 @@
 
     async function handleWebrtcIce(studentId, candidate) {
         const entry = incoming.get(studentId);
-        if (!entry) return;
+        if (!entry || !entry.pc) return;
         try {
             if (entry.pc.remoteDescription) await entry.pc.addIceCandidate(new RTCIceCandidate(candidate));
             else entry.pending.push(candidate);
@@ -959,6 +1026,23 @@
             else if (type === 'stopped' || type === 'left') clearIncomingViewer(studentId);
         });
         socket.on('webrtc:offer', ({ studentId, offer }) => handleWebrtcOffer(studentId, offer).catch(console.error));
+        // A sender with no direct path switched to the WebSocket: decode its chunks into
+        // an ordinary stream for the tile, the viewer and the floating player.
+        socket.on('student:transport', ({ studentId, mode }) => {
+            if (mode !== 'ws' || !window.LabShowWsMedia) return;
+            closeIncomingPeer(studentId);
+            const receiver = window.LabShowWsMedia.createVideoReceiver({
+                onNeedKeyframe: () => socket.emit('host:keyframe', { studentId })
+            });
+            incoming.set(studentId, { pc: null, pending: [], stream: receiver.stream, ws: receiver });
+            const tile = tileVideos.get(studentId);
+            if (tile) tile.srcObject = receiver.stream;
+            if (studentId === selectedStudentId) setViewerStudent(studentId);
+        });
+        socket.on('media:video', (meta, data) => {
+            const entry = incoming.get(meta && meta.studentId);
+            if (entry && entry.ws) entry.ws.push(meta, data);
+        });
         socket.on('webrtc:ice', ({ studentId, candidate }) => handleWebrtcIce(studentId, candidate).catch(console.error));
     }
 

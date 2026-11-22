@@ -508,3 +508,80 @@ body.viewer-active .video-placeholder { display: none; }
     .room-layout { grid-template-columns: 1fr; height: auto; }
     .room-page { overflow: auto; }
 }
+
+/* ---------- Day theme (night is the default palette above) ---------- */
+:root {
+    --card-selected: #0b2c35;
+    --key-bg: #223234;
+    --danger: #8c2020;
+    --warning-bg: #8a6415;
+    --overlay: rgba(8, 13, 14, 0.94);
+    color-scheme: dark;
+}
+:root[data-theme="light"] {
+    --bg: #f3f6f6;
+    --bg-2: #e9eff0;
+    --panel: #ffffff;
+    --panel-2: #f1f5f5;
+    --border: #cbd8d9;
+    --olive: #5f7a22;
+    --olive-bright: #4d6614;
+    --teal: #0e7490;
+    --teal-bright: #0b6a85;
+    --text: #102022;
+    --muted: #586b6c;
+    --err: #b91c1c;
+    --warn: #a35a00;
+    --card-selected: #dff1f5;
+    --key-bg: #e2eaeb;
+    --danger: #b42318;
+    --warning-bg: #a5670c;
+    --overlay: rgba(255, 255, 255, 0.96);
+    color-scheme: light;
+}
+.btn-danger, .stop-btn { background: var(--danger); }
+.btn-warning { background: var(--warning-bg); }
+.student-card.selected { background: var(--card-selected); }
+.direction-pad button, .remote-key-grid button { background: var(--key-bg); }
+.live-status-bar { background: var(--overlay); }
+
+/* ---------- Settings button: a corner, kept off the edges by a share of the window ---------- */
+.settings-fab {
+    position: fixed; z-index: 200;
+    inset-block-end: clamp(12px, 3.5vh, 36px);
+    inset-inline-start: clamp(12px, 2.5vw, 36px);
+    width: clamp(40px, 3.6vw, 54px); height: clamp(40px, 3.6vw, 54px);
+    display: grid; place-items: center; border-radius: 50%;
+    border: 1px solid var(--border); background: var(--panel); color: var(--text);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28); cursor: pointer; transition: transform 0.15s;
+}
+.settings-fab:hover { transform: rotate(30deg); border-color: var(--teal-bright); }
+.settings-fab svg { width: 55%; height: 55%; }
+.settings-panel {
+    position: fixed; z-index: 201;
+    inset-block-end: calc(clamp(12px, 3.5vh, 36px) + clamp(40px, 3.6vw, 54px) + 10px);
+    inset-inline-start: clamp(12px, 2.5vw, 36px);
+    width: min(340px, calc(100vw - 2 * clamp(12px, 2.5vw, 36px)));
+    max-height: calc(100vh - 120px); overflow-y: auto;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
+}
+.settings-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.settings-head h3 { margin: 0; font-size: 0.95rem; }
+.settings-segmented { grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); }
+.settings-toggle { display: flex; align-items: center; gap: 9px; margin-top: 14px; font-size: 0.82rem; cursor: pointer; }
+.settings-toggle input { width: 18px; height: 18px; accent-color: var(--teal); }
+/* Leave room so the floating button never covers the last controls. */
+.pane, .room-main, .room-side { padding-bottom: calc(clamp(40px, 3.6vw, 54px) + clamp(12px, 3.5vh, 36px) + 8px); }
+
+/* ---------- Buttons scale with the space available ---------- */
+.btn-primary, .btn-secondary, .btn-danger, .btn-warning, .btn-ghost {
+    min-height: clamp(32px, 4.2vh, 44px);
+    padding: clamp(4px, 0.6vh, 8px) clamp(10px, 1.2vw, 18px);
+    font-size: clamp(0.74rem, 0.85vw + 0.2rem, 0.92rem);
+}
+.video-btn { width: clamp(30px, 2.6vw, 40px); height: clamp(30px, 2.6vw, 40px); }
+.btn-row, .split-row { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+.share-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+@media (max-width: 520px) {
+    .share-row { grid-template-columns: 1fr; }
+}

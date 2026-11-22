@@ -13,7 +13,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     applyControlKey: (key) => ipcRenderer.invoke('control:key', key),
     canStartOutgoing: () => ipcRenderer.invoke('outgoing:can-start'),
     openRoom: (params) => ipcRenderer.invoke('room:open', params),
-    setNotificationsSuppressed: (suppressed) => ipcRenderer.invoke('notifications:set', Boolean(suppressed)),
+    getSettings: () => ipcRenderer.invoke('settings:get'),
+    setSettings: (changes) => ipcRenderer.invoke('settings:set', changes),
     onRoomOwnerState: (callback) => ipcRenderer.on('room:owner-state', (_event, state) => callback(state)),
 
     onTrayStopBroadcast: (callback) => ipcRenderer.on('tray:stop-broadcast', () => callback()),

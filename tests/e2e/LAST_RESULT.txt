@@ -1,0 +1,45 @@
+End-to-end run (2026-11-22, Docker on a Linux cloud server): npm run e2e
+
+PASS  lab_a: the app opens (Arabic by default)  {"title":"Lab show","lang":"ar"}
+PASS  lab_b: the app opens (Arabic by default)  {"title":"Lab show","lang":"ar"}
+PASS  lab_c: the app opens (Arabic by default)  {"title":"Lab show","lang":"ar"}
+PASS  B cannot reach A's home network directly (A is behind NAT)  "timeout"
+PASS  language: Arabic (right to left) -> English (left to right) -> back  {"before":{"dir":"rtl","heading":"إرسال شاشتي"},"english":{"dir":"ltr","heading":"Send my screen","receive":"Receive broadcasts"},"back":{"dir":"rtl","heading":"إرسال شاشتي"}}
+PASS  global code: the link carries router R1's public address (UPnP opened a port)  {"link":"http://45.67.89.11:46085/j?k=s&m=g&c=BLCSKRM5FQAV&e=45.67.89.11%3A46085&t=FG4HJBSYQXMT","note":"الرابط يعمل عبر الإنترنت: فُتح منفذ في الراوتر تلقائياً."}
+PASS  B can now reach A through R1's public address and the opened port
+PASS  B starts sending its screen to A with the code and the link  {"sending":true,"pill":"يبث الآن","identity":"إلى: BLCSKRM5FQAV · 001","controlButtonHidden":true,"controlStatus":"التحكم بالمفاتيح غير متاح في الاتصال العالمي."}
+PASS  global connection: B has no "allow key control" button  "التحكم بالمفاتيح غير متاح في الاتصال العالمي."
+PASS  A shows B's card with B's title  ["Device B - graduation project"]
+PASS  A receives B's live screen: picture size known and frames keep arriving  {"width":1920,"height":1080,"framesAtStart":5,"framesAfter3s":66}
+PASS  A cannot send keys over a global connection  "التحكم غير متاح في الاتصال العالمي"
+PASS  B forcing "allow control" is refused by the server in global mode  {"controlStatus":"التحكم بالمفاتيح غير متاح في الاتصال العالمي."}
+PASS  B sees that A is watching  {"live":"البث يعمل · المستقبِل يشاهد","pill":"يبث الآن","controlButtonHidden":true}
+PASS  public broadcast: link with R1's public address and a token  {"code":"DGVBW5KABY87","link":"http://45.67.89.11:46085/j?k=r&m=g&c=DGVBW5KABY87&e=45.67.89.11%3A46085&t=2UKJ9ZELK74U","reachNote":"الرابط يعمل عبر الإنترنت: فُتح منفذ في الراوتر تلقائياً.","sendBlocked":true}
+PASS  while the public broadcast runs, A's private "send" is blocked (one outgoing broadcast per device)
+PASS  B joins the public broadcast and sees A's live screen  {"title":"Networks lecture","video":{"width":1920,"height":1080,"framesAtStart":4,"framesAfter3s":64},"status":"مباشر"}
+PASS  C joins too and sees A's live screen  {"title":"Networks lecture","video":{"width":1920,"height":1080,"framesAtStart":5,"framesAfter3s":65},"status":"مباشر"}
+PASS  A keeps receiving B's private broadcast while broadcasting publicly  {"width":1920,"height":1080,"framesAtStart":339,"framesAfter3s":399}
+PASS  comments reach everyone in order  {"c":["Can you repeat slide 3?","Sure, one moment"],"a":["Can you repeat slide 3?","Sure, one moment"]}
+PASS  participants list shows the host and both viewers  ["Host A","Sara","Omar"]
+PASS  voices: with B's microphone on, C hears B (energy rises over silence)  {"silentGain":2.812765850322282e-9,"cGain":0.9388034500312856}
+PASS  voices: the host hears B (loudness of B's voice at the host)  {"loudest":0.3542546002087109}
+PASS  participants see B's microphone is on  {"participants":["Host A","Sara","Omar"],"micOn":1,"comments":["Can you repeat slide 3?","Sure, one moment"],"heading":"الحاضرون (3)"}
+PASS  local code: the link points at B's address on its home network  "http://192.168.20.2:37025/j?k=s&m=l&c=T3E24MVXKSL5&e=192.168.20.2%3A37025"
+PASS  C sends to B with the code only (found on the local network)  {"sending":true,"pill":"يبث الآن","identity":"إلى: T3E24MVXKSL5 · 001","controlButtonHidden":false,"controlStatus":"التحكم متوقف حتى تسمح به."}
+PASS  local connection: C has the "allow key control" button  {"sending":true,"pill":"يبث الآن","identity":"إلى: T3E24MVXKSL5 · 001","controlButtonHidden":false,"controlStatus":"التحكم متوقف حتى تسمح به."}
+PASS  B receives C's live screen  {"width":1920,"height":1080,"framesAtStart":8,"framesAfter3s":49}
+PASS  B's keys stay off until C allows them  "بانتظار موافقة صاحب البث"
+PASS  after C allows control, B's key buttons turn on  {"allowed":{"controlStatus":"السماح مفعّل؛ يمكنك إيقافه في أي وقت.","toggle":"إيقاف السماح بالتحكم"},"keys":{"keysStatus":"صاحب البث سمح بالتحكم","keysDisabled":false}}
+PASS  B is still sending its own screen to A meanwhile  {"live":"البث يعمل · المستقبِل يشاهد","pill":"يبث الآن","controlButtonHidden":true}
+PASS  settings button sits in a corner, kept off the edges, also in a smaller window  {"box":{"x":1201,"y":725.015625,"width":46.03125,"height":46.03125},"small":{"x":627.5,"y":461.8125,"width":40,"height":40}}
+PASS  settings panel opens and closes
+PASS  day theme switches the colours, night brings them back  {"dark":"rgb(5, 7, 7)","light":{"theme":"light","background":"rgb(243, 246, 246)"}}
+PASS  "block pop-up notifications" says clearly it is Windows-only here  {"disabled":true,"hint":"حجب الإشعارات متاح على Windows فقط."}
+PASS  opening A's link from B (as in a browser) reaches A's own page  "page"
+PASS  the link is A's real public address (router IP and opened port), not a made-up domain  "http://45.67.89.11:46085/j?k=s&m=g&c=BLCSKRM5FQAV&e=45.67.89.11%3A46085&t=FG4HJBSYQXMT"
+PASS  UDP blocked: B's running broadcast to A moves to the WebSocket by itself  {"status":"لا يوجد طريق مباشر؛ يُرسل البث عبر الاتصال الآمن (WebSocket)."}
+PASS  A keeps receiving B's screen over the WebSocket  {"width":1280,"height":720,"framesAtStart":32,"framesAfter3s":40}
+PASS  UDP blocked: B's seat in the public broadcast moves to the WebSocket and the picture keeps coming  {"status":"مباشر عبر الاتصال الآمن (لا يوجد طريق مباشر في هذه الشبكة).","video":{"width":1280,"height":720,"framesAtStart":18,"framesAfter3s":24}}
+PASS  UDP blocked: C starts a new broadcast to A with the link  {"sending":true,"pill":"يبث الآن","identity":"إلى: BLCSKRM5FQAV · 002","controlButtonHidden":true,"controlStatus":"التحكم بالمفاتيح غير متاح في الاتصال العالمي."}
+PASS  A receives C's screen over the WebSocket (no UDP at all on C's side)  {"width":1280,"height":720,"framesAtStart":84,"framesAfter3s":92}
+42/42 checks passed

@@ -77,14 +77,64 @@ const commands = {
         return { title: await page.title(), lang: await page.evaluate(() => document.documentElement.lang) };
     },
 
+    // Language through the settings panel: Arabic -> English -> Arabic.
     async language(browser) {
         const page = await pageMatching(browser, 'index.html');
+        const pick = async (value) => {
+            if (await page.locator('#settingsPanel').isHidden()) await page.click('#settingsButton');
+            await page.click(`#settingsPanel [data-name="language"] button[data-value="${value}"]`);
+        };
         const before = { dir: await page.evaluate(() => document.dir), heading: await text(page, '#sendHeading') };
-        await page.click('#langToggle');
+        await pick('en');
         const english = { dir: await page.evaluate(() => document.dir), heading: await text(page, '#sendHeading'), receive: await text(page, '#recvHeading') };
-        await page.click('#langToggle');
+        await pick('ar');
         const back = { dir: await page.evaluate(() => document.dir), heading: await text(page, '#sendHeading') };
+        await page.keyboard.press('Escape');
         return { before, english, back };
+    },
+
+    // The settings button: where it sits, the day/night theme, the notification option.
+    async settings(browser) {
+        const page = await pageMatching(browser, 'index.html');
+        const view = await page.evaluate(() => ({ w: innerWidth, h: innerHeight }));
+        const box = await page.locator('#settingsButton').boundingBox();
+        await page.click('#settingsButton');
+        const panelOpen = await page.locator('#settingsPanel').isVisible();
+        const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+        const system = { theme: await page.evaluate(() => document.documentElement.dataset.theme) };
+        await page.click('#settingsPanel [data-name="theme"] button[data-value="dark"]');
+        const dark = await background();
+        await page.click('#settingsPanel [data-name="theme"] button[data-value="light"]');
+        const light = { theme: await page.evaluate(() => document.documentElement.dataset.theme), background: await background() };
+        await page.click('#settingsPanel [data-name="theme"] button[data-value="dark"]');
+        const notif = {
+            disabled: await page.locator('#settingsNotifications').isDisabled(),
+            hint: await text(page, '#settingsNotificationsHint')
+        };
+        await page.keyboard.press('Escape');
+        const panelClosed = await page.locator('#settingsPanel').isHidden();
+        // Smaller window: the button stays inside, still off the edges.
+        await page.setViewportSize({ width: 700, height: 520 });
+        const small = await page.locator('#settingsButton').boundingBox();
+        await page.setViewportSize({ width: view.w, height: view.h });
+        return { view, box, small, panelOpen, panelClosed, system, dark, light, notif };
+    },
+
+    async stopSending(browser) {
+        const page = await pageMatching(browser, 'index.html');
+        if (await page.locator('#broadcastCard').isVisible()) await page.click('#stopBroadcastBtn');
+        await page.waitForSelector('#codeCard:not([hidden])', { timeout: 10000 });
+        return { status: await text(page, '#outgoingStatus') };
+    },
+
+    async outgoingStatus(browser) {
+        const page = await pageMatching(browser, 'index.html');
+        return { status: await text(page, '#outgoingStatus') };
+    },
+
+    async roomViewerState(browser) {
+        const room = await pageMatching(browser, 'role=viewer');
+        return { status: await text(room, '#roomStatus'), video: await liveVideo(room, '#stageVideo', 60000) };
     },
 
     async createReceive(browser) {
@@ -180,7 +230,7 @@ const commands = {
         await page.click(`#pubNetworkMode button[data-mode="${args.mode || 'local'}"]`);
         await page.click('#pubStartBtn');
         const room = await pageMatching(browser, 'room.html?');
-        await room.waitForFunction(() => document.getElementById('roomLink').textContent.includes('labshow.link'), null, { timeout: 40000 });
+        await room.waitForFunction(() => /\/j\?/.test(document.getElementById('roomLink').textContent), null, { timeout: 40000 });
         return {
             code: (await text(room, '#roomCode')).trim(),
             link: (await text(room, '#roomLink')).trim(),
@@ -262,12 +312,6 @@ const commands = {
         return { loudest };
     },
 
-    async notifications(browser) {
-        const room = await pageMatching(browser, 'role=owner');
-        await room.click('#notifBtn');
-        await room.waitForTimeout(800);
-        return { status: await text(room, '#roomStatus') };
-    }
 };
 
 (async () => {

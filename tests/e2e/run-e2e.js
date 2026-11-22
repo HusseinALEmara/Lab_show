@@ -207,8 +207,49 @@ async function main() {
     const bStill = drive('lab_b', 'senderState');
     check('B is still sending its own screen to A meanwhile', /يبث|Live/.test(bStill.pill), bStill);
 
-    const notif = drive('lab_a', 'notifications');
-    check('"block notifications" answers clearly on a non-Windows system', /Windows/.test(notif.status), notif);
+    // ---- Settings button: corner position, day/night theme, notification option ----
+    const set = drive('lab_a', 'settings');
+    const offEdges = (box, view) => box && box.x >= 10 && box.y + box.height <= view.h - 10 &&
+        (box.x <= view.w * 0.1 || box.x + box.width >= view.w * 0.9);
+    check('settings button sits in a corner, kept off the edges, also in a smaller window',
+        offEdges(set.box, set.view) && offEdges(set.small, { w: 700, h: 520 }), { box: set.box, small: set.small });
+    check('settings panel opens and closes', set.panelOpen && set.panelClosed);
+    check('day theme switches the colours, night brings them back', set.light.theme === 'light' && set.light.background !== set.dark,
+        { dark: set.dark, light: set.light });
+    check('"block pop-up notifications" says clearly it is Windows-only here', set.notif.disabled && /Windows/.test(set.notif.hint), set.notif);
+
+    // ---- The link really reaches the device: B opens A's link like a web page ----
+    const pageText = docker(['exec', 'lab_b', '/opt/node/bin/node', '-e',
+        `fetch(${JSON.stringify(code.link)}).then(r=>r.text()).then(t=>console.log(t.includes(${JSON.stringify(code.code)}) && t.includes('Lab show') ? 'page' : 'other')).catch(e=>console.log('error '+e.message))`]);
+    check('opening A\'s link from B (as in a browser) reaches A\'s own page', pageText === 'page', pageText);
+    check('the link is A\'s real public address (router IP and opened port), not a made-up domain',
+        new URL(code.link).origin === `http://${WAN}11:${routerPort}`, code.link);
+
+    // ---- Scenario 4: an organization's network. All UDP is now blocked behind router R2
+    // (only TCP passes). Running WebRTC paths break; the app must move them to the
+    // WebSocket by itself, and new broadcasts must work too. ----
+    docker(['exec', 'lab_r2', 'nft', 'insert', 'rule', 'inet', 'filter', 'forward', 'meta', 'l4proto', 'udp', 'drop']);
+    const until = Date.now() + 70000;
+    let bOut = null;
+    while (Date.now() < until) {
+        bOut = drive('lab_b', 'outgoingStatus');
+        if (/WebSocket|الآمن/.test(bOut.status)) break;
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+    check('UDP blocked: B\'s running broadcast to A moves to the WebSocket by itself', /WebSocket|الآمن/.test(bOut.status), bOut);
+    const aAfterBlock = drive('lab_a', 'watchIncoming', { title: 'Device B' });
+    check('A keeps receiving B\'s screen over the WebSocket',
+        aAfterBlock.video.width > 0 && aAfterBlock.video.framesAfter3s > aAfterBlock.video.framesAtStart, aAfterBlock.video);
+    const bRoomAfter = drive('lab_b', 'roomViewerState');
+    check('UDP blocked: B\'s seat in the public broadcast moves to the WebSocket and the picture keeps coming',
+        /الآمن|secure/.test(bRoomAfter.status) && bRoomAfter.video.framesAfter3s > bRoomAfter.video.framesAtStart, bRoomAfter);
+
+    drive('lab_c', 'stopSending');
+    const cOrg = drive('lab_c', 'send', { code: code.code, link: code.link, title: 'Device C - from the office' });
+    check('UDP blocked: C starts a new broadcast to A with the link', cOrg.sending, cOrg);
+    const aSeesC = drive('lab_a', 'watchIncoming', { title: 'Device C - from the office' });
+    check('A receives C\'s screen over the WebSocket (no UDP at all on C\'s side)',
+        aSeesC.video.width > 0 && aSeesC.video.framesAfter3s > aSeesC.video.framesAtStart, aSeesC.video);
 
     const failed = results.filter((r) => !r.pass);
     console.log(`\n${results.length - failed.length}/${results.length} checks passed`);

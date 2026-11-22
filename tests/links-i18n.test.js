@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const { buildLink, parseLink } = require('../src/links');
+const { buildLink, parseLink, connectTargets } = require('../src/links');
 const { generateSessionCode } = require('../src/session-fields');
 
 const ROOT = path.join(__dirname, '..');
@@ -18,11 +18,30 @@ test('links: what a device builds, another device parses back exactly', () => {
             const link = buildLink({ kind, mode, code, endpoint: '203.0.113.7:51234', token });
             const parsed = parseLink(link);
             assert.deepEqual(parsed, {
-                kind, mode, code, host: '203.0.113.7', port: 51234, token, username: ''
+                kind, mode, code, host: '203.0.113.7', port: 51234, webUrl: 'http://203.0.113.7:51234', token, username: ''
             }, `${kind}/${mode}`);
         }
     }
-    assert.ok(buildLink({ code, endpoint: '1.2.3.4:5' }).startsWith('https://labshow.link/j?'));
+    assert.ok(buildLink({ code, endpoint: '1.2.3.4:5000' }).startsWith('http://1.2.3.4:5000/j?'),
+        'without a tunnel the link is the device\'s own public address');
+});
+
+test('links: with a tunnel the link is the device\'s https address, and the direct one is tried first', () => {
+    const code = generateSessionCode();
+    const token = generateSessionCode(12);
+    const link = buildLink({
+        kind: 'send', mode: 'global', code, endpoint: '203.0.113.7:51234', token,
+        webUrl: 'https://brave-blue-river.trycloudflare.com/'
+    });
+    assert.ok(link.startsWith('https://brave-blue-river.trycloudflare.com/j?'), link);
+    const parsed = parseLink(link);
+    assert.equal(parsed.webUrl, 'https://brave-blue-river.trycloudflare.com');
+    assert.deepEqual(connectTargets(parsed), ['http://203.0.113.7:51234', 'https://brave-blue-river.trycloudflare.com']);
+    // A tunnel-only link (no direct address) still works.
+    const tunnelOnly = parseLink(`https://live.university.edu/j?k=r&m=g&c=${code}&t=${token}`);
+    assert.deepEqual(connectTargets(tunnelOnly), ['https://live.university.edu']);
+    assert.equal(parseLink(`https://live.university.edu/other?c=${code}&t=${token}`), null, 'only /j links');
+    assert.equal(parseLink(`ftp://x/j?c=${code}&e=1.2.3.4:5000`), null);
 });
 
 test('links: older global links (no kind or mode, with a token) still work', () => {
@@ -81,8 +100,8 @@ test('i18n: every key used by the pages and scripts exists', () => {
     for (const file of ['renderer/index.html', 'renderer/room.html']) {
         for (const [, key] of read(file).matchAll(/data-i18n(?:-placeholder|-title)?="([^"]+)"/g)) used.add(key);
     }
-    const keyLiteral = /'((?:send|control|recv|reach|card|keys|key|video|pub|join|room|err|net|dur|lang|app)\.[\w.-]+)'/g;
-    for (const file of ['renderer/app.js', 'renderer/room.js']) {
+    const keyLiteral = /'((?:send|control|recv|reach|card|keys|key|video|pub|join|room|err|net|dur|lang|app|settings|theme)\.[\w.-]+)'/g;
+    for (const file of ['renderer/app.js', 'renderer/room.js', 'renderer/settings.js']) {
         for (const [, key] of read(file).matchAll(keyLiteral)) used.add(key);
     }
     for (const key of used) assert.ok(key in dictionaries.ar, `missing key ${key}`);

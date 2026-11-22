@@ -16,9 +16,9 @@
     const OWNER_ID = 'owner';
 
     const dom = Object.fromEntries([
-        'roomTitle', 'roomMeta', 'livePill', 'langToggle', 'stageVideo', 'waitingNote', 'mixAudio',
+        'roomTitle', 'roomMeta', 'livePill', 'stageVideo', 'waitingNote', 'mixAudio',
         'shareCard', 'roomCode', 'copyRoomCode', 'roomLink', 'copyRoomLink', 'roomReach',
-        'commentList', 'noComments', 'commentForm', 'commentInput', 'micBtn', 'notifBtn', 'endBtn',
+        'commentList', 'noComments', 'commentForm', 'commentInput', 'micBtn', 'endBtn',
         'roomStatus', 'participantsHeading', 'participantList'
     ].map((id) => [id, $(id)]));
 
@@ -28,7 +28,6 @@
     let participants = [];
     let micStream = null;
     let micOn = false;
-    let notificationsBlocked = false;
     let ended = false;
 
     // owner state
@@ -36,6 +35,13 @@
     let audioCtx = null;
     let ownerMicGain = null;
     const peers = new Map(); // viewerId -> { pc, dest, source, sink, pending }
+
+    // WebSocket fallback (no direct WebRTC path, e.g. UDP blocked)
+    const WsMedia = window.LabShowWsMedia;
+    const DIRECT_TIMEOUT_MS = 8000;
+    let ownerVideoSender = null; // one encoder shared by every WebSocket viewer
+    let viewerWs = null; // { video, audio, ctx, mic }
+    let viewerFallbackTimer = null;
 
     // viewer state
     let viewerPc = null;
@@ -121,20 +127,14 @@
         dom.micBtn.classList.toggle('active', micOn);
     }
 
-    function updateNotifButton() {
-        I18n.setText(dom.notifBtn, notificationsBlocked ? 'room.notifOn' : 'room.notifOff');
-    }
-
     function setLive(on) {
         dom.livePill.hidden = !on;
         dom.waitingNote.hidden = on;
     }
 
-    dom.langToggle.addEventListener('click', () => I18n.toggle());
     I18n.onChange(() => {
         renderParticipants();
         updateMicButton();
-        updateNotifButton();
     });
     dom.copyRoomCode.addEventListener('click', () => navigator.clipboard.writeText(dom.roomCode.textContent)
         .then(() => setStatus('recv.copied', 'ok'), () => setStatus('recv.copyFailed', 'err')));
@@ -182,13 +182,24 @@
                         ownerMicGain.__source.connect(ownerMicGain);
                     }
                     ownerMicGain.gain.value = 1;
+                } else if (viewerWs) {
+                    if (!viewerWs.mic) {
+                        viewerWs.mic = WsMedia.createAudioSender({
+                            track,
+                            send: (meta, data) => socket.emit('room:audio', meta, data),
+                            isBacklogged: WsMedia.backlogOf(socket, 40)
+                        });
+                    }
                 } else if (viewerPc) {
                     const sender = viewerAudioSender();
                     if (sender) await sender.replaceTrack(track);
                 }
             } else if (micStream) {
                 if (role === 'owner') ownerMicGain.gain.value = 0;
-                else {
+                else if (viewerWs) {
+                    if (viewerWs.mic) viewerWs.mic.stop();
+                    viewerWs.mic = null;
+                } else {
                     const sender = viewerAudioSender();
                     if (sender) await sender.replaceTrack(null);
                 }
@@ -253,17 +264,53 @@
         const peer = peers.get(viewerId);
         if (!peer) return;
         peers.delete(viewerId);
-        try { peer.pc.close(); } catch { /* closed */ }
+        if (peer.pc) try { peer.pc.close(); } catch { /* closed */ }
         if (peer.source) try { peer.source.disconnect(); } catch { /* done */ }
         if (peer.sink) peer.sink.srcObject = null;
+        if (peer.audioSender) peer.audioSender.stop();
+        if (peer.audioReceiver) peer.audioReceiver.stop();
         try { ownerMicGain.disconnect(peer.dest); } catch { /* done */ }
+        if (ownerVideoSender && !Array.from(peers.values()).some((p) => p.ws)) {
+            ownerVideoSender.stop();
+            ownerVideoSender = null;
+        }
         applyOwnerBitrates();
+    }
+
+    // A viewer with no direct path: its picture comes from the shared encoder, its voice
+    // mix (everyone but itself) from its own audio encoder, and its microphone is decoded
+    // into the same mixing graph as the WebRTC viewers' voices.
+    function ownerUseWebSocket(viewerId) {
+        if (!WsMedia || !audioCtx) return;
+        ownerRemoveViewer(viewerId);
+        const dest = audioCtx.createMediaStreamDestination();
+        ownerMicGain.connect(dest);
+        for (const other of peers.values()) if (other.source) connectVoice(other.source, dest);
+        const audioReceiver = WsMedia.createAudioReceiver({ ctx: audioCtx });
+        const peer = { ws: true, pc: null, dest, source: audioReceiver.output, sink: null, audioReceiver, audioSender: null };
+        peers.set(viewerId, peer);
+        audioReceiver.output.connect(audioCtx.destination);
+        for (const [otherId, other] of peers) if (otherId !== viewerId) connectVoice(audioReceiver.output, other.dest);
+        peer.audioSender = WsMedia.createAudioSender({
+            track: dest.stream.getAudioTracks()[0],
+            send: (meta, data) => socket.emit('room:audio-to', { ...meta, to: viewerId }, data),
+            isBacklogged: WsMedia.backlogOf(socket, 60)
+        });
+        if (!ownerVideoSender) {
+            ownerVideoSender = WsMedia.createVideoSender({
+                track: screenStream.getVideoTracks()[0],
+                send: (meta, data) => socket.emit('room:video', meta, data),
+                isBacklogged: WsMedia.backlogOf(socket, 60)
+            });
+        }
+        ownerVideoSender.requestKeyframe();
     }
 
     // The owner's upload is shared by every viewer: split a budget between them.
     function applyOwnerBitrates() {
         const each = Math.max(300000, Math.min(3000000, Math.floor(12000000 / Math.max(1, peers.size))));
         for (const { pc } of peers.values()) {
+            if (!pc) continue;
             const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
             if (!sender) continue;
             const p = sender.getParameters();
@@ -312,14 +359,11 @@
         for (const id of Array.from(peers.keys())) ownerRemoveViewer(id);
         if (screenStream) screenStream.getTracks().forEach((track) => track.stop());
         if (micStream) micStream.getTracks().forEach((track) => track.stop());
-        if (notificationsBlocked) await api.setNotificationsSuppressed(false);
         setTimeout(() => window.close(), 150);
     }
 
     async function startOwner() {
         I18n.setText(dom.endBtn, 'room.end');
-        dom.notifBtn.hidden = false;
-        updateNotifButton();
         setStatus('room.creating');
         try {
             screenStream = await navigator.mediaDevices.getDisplayMedia({
@@ -371,21 +415,19 @@
         socket.on('room:comment', appendComment);
         socket.on('room:viewer-joined', ({ viewerId }) => ownerAddViewer(viewerId).catch(console.error));
         socket.on('room:viewer-left', ({ viewerId }) => ownerRemoveViewer(viewerId));
+        socket.on('room:viewer-transport', ({ viewerId, mode }) => {
+            if (mode === 'ws') ownerUseWebSocket(viewerId);
+        });
+        socket.on('room:keyframe-request', () => {
+            if (ownerVideoSender) ownerVideoSender.requestKeyframe();
+        });
+        socket.on('room:audio', (meta, data) => {
+            const peer = peers.get(meta && meta.from);
+            if (peer && peer.audioReceiver) peer.audioReceiver.push(meta, data);
+        });
         socket.on('room:signal', ({ from, data }) => ownerSignal(from, data || {}));
         socket.on('disconnect', () => setStatus('room.disconnected', 'err'));
     }
-
-    dom.notifBtn.addEventListener('click', async () => {
-        const next = !notificationsBlocked;
-        const result = await api.setNotificationsSuppressed(next);
-        if (!result || !result.ok) {
-            setStatus(result && result.error === 'unsupported' ? 'room.notifUnsupported' : 'room.notifFailed', 'err');
-            return;
-        }
-        notificationsBlocked = next;
-        updateNotifButton();
-        setStatus(next ? 'room.notifActive' : 'room.notifRestored', 'ok');
-    });
 
     // ---------- viewer ----------
 
@@ -395,9 +437,31 @@
         return transceiver ? transceiver.sender : null;
     }
 
+    function viewerUseWebSocket() {
+        if (viewerWs || !WsMedia || ended) return;
+        if (viewerPc) viewerPc.close();
+        viewerPc = null;
+        const ctx = new AudioContext();
+        ctx.resume().catch(() => {});
+        const video = WsMedia.createVideoReceiver({ onNeedKeyframe: () => socket.emit('room:keyframe') });
+        const audio = WsMedia.createAudioReceiver({ ctx });
+        audio.output.connect(ctx.destination);
+        viewerWs = { video, audio, ctx, mic: null };
+        dom.stageVideo.srcObject = video.stream;
+        setLive(true);
+        setStatus('room.fallback', 'ok');
+        socket.emit('room:transport', { mode: 'ws' });
+        if (micOn && micStream) setMic(true);
+    }
+
     async function viewerSignal(data) {
+        if (viewerWs) return;
         try {
             if (data.sdp && data.sdp.type === 'offer') {
+                if (viewerFallbackTimer) clearTimeout(viewerFallbackTimer);
+                viewerFallbackTimer = setTimeout(() => {
+                    if (!viewerPc || viewerPc.connectionState !== 'connected') viewerUseWebSocket();
+                }, DIRECT_TIMEOUT_MS);
                 if (viewerPc) viewerPc.close();
                 viewerPc = new RTCPeerConnection({ iceServers: [...iceServers(), ...viewerRelayIce] });
                 viewerPending = [];
@@ -415,8 +479,15 @@
                 viewerPc.onicecandidate = (event) => {
                     if (event.candidate) socket.emit('room:signal', { data: { candidate: event.candidate } });
                 };
+                const pc = viewerPc;
                 viewerPc.onconnectionstatechange = () => {
-                    if (viewerPc && viewerPc.connectionState === 'failed') setStatus('room.connectFailed', 'err');
+                    if (viewerPc !== pc) return;
+                    if (pc.connectionState === 'failed') viewerUseWebSocket();
+                    else if (pc.connectionState === 'disconnected') {
+                        setTimeout(() => {
+                            if (viewerPc === pc && pc.connectionState !== 'connected') viewerUseWebSocket();
+                        }, 10000);
+                    }
                 };
                 await viewerPc.setRemoteDescription(data.sdp);
                 // Answer the audio line as send-and-receive so the microphone can be
@@ -447,18 +518,40 @@
         ended = true;
         if (socket) socket.emit('room:leave');
         if (viewerPc) viewerPc.close();
+        if (viewerWs) {
+            viewerWs.video.stop();
+            viewerWs.audio.stop();
+            if (viewerWs.mic) viewerWs.mic.stop();
+        }
         if (micStream) micStream.getTracks().forEach((track) => track.stop());
         setTimeout(() => window.close(), 150);
     }
 
-    function startViewer() {
+    // The direct address first (fastest), then the owner's web address (its tunnel),
+    // which passes firewalls that only allow port 443.
+    async function connectFirst(urls) {
+        for (const url of urls) {
+            const candidate = io(url, { timeout: 6000, reconnection: false, forceNew: true });
+            const ok = await new Promise((resolve) => {
+                candidate.once('connect', () => resolve(true));
+                candidate.once('connect_error', () => resolve(false));
+            });
+            if (ok) return candidate;
+            candidate.close();
+        }
+        return null;
+    }
+
+    async function startViewer() {
         I18n.setText(dom.endBtn, 'room.leave');
         setStatus('room.connecting');
-        const host = params.get('host');
-        const port = Number(params.get('port'));
-        socket = io(`http://${host}:${port}`, { timeout: 6000, reconnection: false });
-        socket.on('connect', () => {
-            socket.timeout(6000).emit('room:join', {
+        const urls = [];
+        if (params.get('host') && params.get('port')) urls.push(`http://${params.get('host')}:${Number(params.get('port'))}`);
+        if (params.get('web') && !urls.includes(params.get('web'))) urls.push(params.get('web'));
+        socket = await connectFirst(urls);
+        if (!socket) return setStatus('room.connectFailed', 'err');
+        const join = () => {
+            socket.timeout(8000).emit('room:join', {
                 code: params.get('code'),
                 token: params.get('token'),
                 name: params.get('name'),
@@ -474,12 +567,17 @@
                 renderParticipants(response.room.participants);
                 renderComments(response.room.comments);
                 setStatus('room.waiting');
+                // If the owner's offer never arrives over a direct path, fall back too.
+                viewerFallbackTimer = setTimeout(() => {
+                    if (!viewerPc || viewerPc.connectionState !== 'connected') viewerUseWebSocket();
+                }, DIRECT_TIMEOUT_MS * 2);
             });
-        });
-        socket.on('connect_error', () => setStatus('room.connectFailed', 'err'));
+        };
         socket.on('room:participants', renderParticipants);
         socket.on('room:comment', appendComment);
         socket.on('room:signal', ({ data }) => viewerSignal(data || {}));
+        socket.on('room:video', (meta, data) => { if (viewerWs) viewerWs.video.push(meta, data); });
+        socket.on('room:audio', (meta, data) => { if (viewerWs) viewerWs.audio.push(meta, data); });
         socket.on('room:ended', ({ reason } = {}) => {
             ended = true;
             if (viewerPc) viewerPc.close();
@@ -491,12 +589,10 @@
         socket.on('disconnect', () => {
             if (!ended) setStatus('room.disconnected', 'err');
         });
+        join();
     }
 
     dom.endBtn.addEventListener('click', () => (role === 'owner' ? endAsOwner() : leaveAsViewer()));
-    window.addEventListener('beforeunload', () => {
-        if (role === 'owner' && notificationsBlocked) api.setNotificationsSuppressed(false);
-    });
 
     // A read-only view of the connections, used by the end-to-end tests.
     window.labshowRoomDebug = {

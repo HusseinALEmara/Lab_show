@@ -19,6 +19,29 @@ const {
 const { createLocalHostNode, UDP_DISCOVERY_PORT } = require('./src/server');
 const { createPortMapper } = require('./src/upnp');
 const { createNotificationGuard } = require('./src/notifications');
+const { createTunnel, parseEnv } = require('./src/tunnel');
+const fs = require('node:fs');
+
+// Optional institution settings (.env): a fixed public domain through a Cloudflare named
+// tunnel, its own TURN server, its own STUN servers, a fixed local port. Looked for
+// next to the installed program, then in the user's app-data folder, then the source
+// folder. Values already in the environment win. See .env.example.
+(function loadEnvFile() {
+    const candidates = [
+        path.join(path.dirname(process.execPath), '.env'),
+        path.join(app.getPath('userData'), '.env'),
+        path.join(__dirname, '.env')
+    ];
+    for (const file of candidates) {
+        try {
+            const values = parseEnv(fs.readFileSync(file, 'utf8'));
+            for (const [key, value] of Object.entries(values)) {
+                if (key.startsWith('LABSHOW_') && process.env[key] === undefined) process.env[key] = value;
+            }
+            return;
+        } catch (error) { /* not there: try the next place */ }
+    }
+}());
 const { isAllowedControlKey, pressControlKey } = require('./src/keyboard-controls');
 const {
     isInstallerShutdownRequest,
@@ -43,6 +66,47 @@ const notificationGuard = createNotificationGuard();
 const STUN_URLS = String(process.env.LABSHOW_STUN_URLS ||
     'stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302')
     .split(',').map((url) => url.trim()).filter(Boolean);
+
+// An institution's own TURN server (for example on port 443 over TLS), handed to the
+// devices that join this device's global sessions, in addition to this device's relay.
+const INSTITUTION_TURN = process.env.LABSHOW_TURN_URLS ? [{
+    urls: process.env.LABSHOW_TURN_URLS.split(',').map((url) => url.trim()).filter(Boolean),
+    username: process.env.LABSHOW_TURN_USERNAME || '',
+    credential: process.env.LABSHOW_TURN_CREDENTIAL || ''
+}] : [];
+
+// The program cloudflared, shipped next to the app (resources/), or given in .env.
+function cloudflaredPath() {
+    const exe = process.platform === 'win32' ? 'cloudflared.exe' : 'cloudflared';
+    const candidates = [
+        process.env.LABSHOW_CLOUDFLARED,
+        process.resourcesPath ? path.join(process.resourcesPath, exe) : null,
+        path.join(__dirname, 'resources', exe)
+    ].filter(Boolean);
+    return candidates.find((file) => { try { return fs.statSync(file).isFile(); } catch { return false; } }) || exe;
+}
+
+let tunnel = null;
+
+// The device's public https address, started on the first global code and kept for the
+// whole run (quick tunnel by default; the institution's domain when .env sets one).
+async function webUrlFor(localPort) {
+    if (process.env.LABSHOW_TUNNEL === 'off') return null;
+    if (!tunnel) {
+        tunnel = createTunnel({
+            binary: cloudflaredPath(),
+            localPort,
+            token: process.env.LABSHOW_TUNNEL_TOKEN || '',
+            publicUrl: process.env.LABSHOW_PUBLIC_URL || ''
+        });
+    }
+    try {
+        return await tunnel.start();
+    } catch (error) {
+        console.error('tunnel', error.message);
+        return null;
+    }
+}
 
 app.setAppUserModelId('com.labshow.desktop');
 // Remote voices in a public broadcast must play without a click first.
@@ -123,6 +187,7 @@ async function quitApplication() {
     for (const win of Array.from(roomWindows)) if (!win.isDestroyed()) win.destroy();
     await notificationGuard.restore();
     await Promise.race([portMapper.release(), new Promise((resolve) => setTimeout(resolve, 1500))]);
+    if (tunnel) tunnel.stop();
     if (hostNode) {
         await hostNode.stop();
         hostNode = null;
@@ -335,6 +400,7 @@ app.on('before-quit', () => {
 app.on('window-all-closed', () => app.quit());
 
 app.whenReady().then(async () => {
+    loadSettings();
     session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
         desktopCapturer.getSources({ types: ['screen'] }).then(
             (sources) => callback(sources && sources.length ? { video: sources[0] } : {}),
@@ -342,8 +408,13 @@ app.whenReady().then(async () => {
         );
     });
 
-    hostNode = createLocalHostNode({ resolvePublicEndpoint: (port, protocol) => portMapper.map(port, protocol) });
-    hostInfo = { ...(await hostNode.start()), iceServers: [{ urls: STUN_URLS }] };
+    hostNode = createLocalHostNode({
+        resolvePublicEndpoint: (port, protocol) => portMapper.map(port, protocol),
+        resolveWebUrl: webUrlFor,
+        extraIceServers: INSTITUTION_TURN,
+        port: Number(process.env.LABSHOW_PORT) || 0
+    });
+    hostInfo = { ...(await hostNode.start()), iceServers: [{ urls: STUN_URLS }, ...INSTITUTION_TURN] };
     createWindowAndTray();
     // pathToFileURL encodes spaces in paths such as "C:\Users\Alwand Center\...".
     const entryUrl = pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href;
@@ -369,7 +440,7 @@ function sendRoomOwnerState() {
     sendToRenderer('room:owner-state', { active: Boolean(roomOwnerWindow && !roomOwnerWindow.isDestroyed()) });
 }
 
-const ROOM_QUERY_KEYS = ['role', 'lang', 'host', 'port', 'code', 'token', 'mode', 'name', 'title', 'duration'];
+const ROOM_QUERY_KEYS = ['role', 'lang', 'host', 'port', 'web', 'code', 'token', 'mode', 'name', 'title', 'duration'];
 
 ipcMain.handle('room:open', (event, params = {}) => {
     if (!mainWindow || event.sender !== mainWindow.webContents) return { ok: false, error: 'host-only' };
@@ -407,7 +478,7 @@ ipcMain.handle('room:open', (event, params = {}) => {
         roomWindows.delete(win);
         if (roomOwnerWindow === win) {
             roomOwnerWindow = null;
-            notificationGuard.restore();
+            updateNotificationGuard();
             sendRoomOwnerState();
         }
     });
@@ -418,12 +489,56 @@ ipcMain.handle('room:open', (event, params = {}) => {
     query.role = role;
     win.loadURL(`${pathToFileURL(path.join(__dirname, 'renderer', 'room.html')).href}?${new URLSearchParams(query)}`);
     sendRoomOwnerState();
+    updateNotificationGuard();
     return { ok: true };
 });
 
-ipcMain.handle('notifications:set', async (event, suppressed) => {
-    if (!isAppWindow(event.sender)) return { ok: false, error: 'host-only' };
-    return suppressed ? notificationGuard.suppress() : notificationGuard.restore();
+// ---------- settings (kept in the user's app-data folder) ----------
+
+const SETTINGS_DEFAULTS = { blockNotifications: false };
+let settings = { ...SETTINGS_DEFAULTS };
+
+function settingsFile() {
+    return path.join(app.getPath('userData'), 'settings.json');
+}
+
+function loadSettings() {
+    try {
+        const saved = JSON.parse(fs.readFileSync(settingsFile(), 'utf8'));
+        settings = { ...SETTINGS_DEFAULTS, blockNotifications: Boolean(saved.blockNotifications) };
+    } catch (error) {
+        settings = { ...SETTINGS_DEFAULTS };
+    }
+}
+
+function saveSettings() {
+    try {
+        fs.mkdirSync(path.dirname(settingsFile()), { recursive: true });
+        fs.writeFileSync(settingsFile(), JSON.stringify(settings, null, 2));
+    } catch (error) {
+        console.error('settings', error);
+    }
+}
+
+// Pop-up notifications are hidden while this device shares its screen (privately or
+// in a public broadcast), when the user asked for it, and restored afterwards.
+function updateNotificationGuard() {
+    const broadcasting = outgoingState.sharing || Boolean(roomOwnerWindow && !roomOwnerWindow.isDestroyed());
+    if (settings.blockNotifications && broadcasting) notificationGuard.suppress();
+    else notificationGuard.restore();
+}
+
+ipcMain.handle('settings:get', (event) => {
+    if (!isAppWindow(event.sender)) return null;
+    return { ...settings, notificationsSupported: process.platform === 'win32' };
+});
+
+ipcMain.handle('settings:set', (event, changes = {}) => {
+    if (!isAppWindow(event.sender)) return null;
+    if (typeof changes.blockNotifications === 'boolean') settings.blockNotifications = changes.blockNotifications;
+    saveSettings();
+    updateNotificationGuard();
+    return { ...settings, notificationsSupported: process.platform === 'win32' };
 });
 ipcMain.handle('find-host', (_event, code) => findHostByCodeOnLan(String(code || '')));
 
@@ -474,6 +589,7 @@ ipcMain.on('outgoing:state', (_event, state) => {
     outgoingState.paused = Boolean(state.paused);
     if (!outgoingState.sharing || outgoingState.paused) outgoingState.controlEnabled = false;
     if (tray) rebuildTrayMenu(createAppIcon());
+    updateNotificationGuard();
 });
 
 ipcMain.on('outgoing:control', (_event, enabled) => {

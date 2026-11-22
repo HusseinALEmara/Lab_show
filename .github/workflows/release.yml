@@ -1,0 +1,61 @@
+# Builds and publishes a Windows release when a version tag (v*) is pushed.
+# 1) tests on Linux, including a real public-internet tunnel check through Cloudflare;
+# 2) builds the installer on Windows and attaches only that one Setup file to the release.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # --force: one dependency is Windows-only (key presses); it is not used by the tests.
+      - run: npm ci --force --ignore-scripts --no-audit --no-fund
+      - run: npm run check
+      - run: npm test
+      - name: Public tunnel check (real internet)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node tools/fetch-cloudflared.js cloudflared-linux-amd64 build-tmp/cloudflared
+          node tests/tunnel-smoke.js build-tmp/cloudflared
+
+  build-windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund
+      - name: Ship cloudflared (checked against Cloudflare's published SHA-256)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node tools/fetch-cloudflared.js cloudflared-windows-amd64.exe resources/cloudflared.exe
+      - name: Build the installer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --win --publish never
+      - name: Publish the release (one Setup file)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Lab show ${{ github.ref_name }}
+          files: dist/Lab-show-Setup-*.exe
+          body: |
+            حمّل الملف Lab-show-Setup وافتحه: تظهر نافذة التثبيت مباشرة (اختيار اللغة، مكان التثبيت، ثم تثبيت).
+            التحديث فوق نسخة سابقة يغلقها ويستبدلها تلقائياً.
+
+            Download Lab-show-Setup and open it: the installation window appears (language, folder, install).
+            Installing over an older version closes and replaces it automatically.

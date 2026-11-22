@@ -41,6 +41,13 @@ const MESSAGES = {
     'comment-rate': 'تعليقات كثيرة؛ انتظر قليلاً.'
 };
 
+// An encoded media chunk: small metadata and a binary payload of at most 2 MB.
+function isMediaChunk(meta, data) {
+    return Boolean(meta && typeof meta === 'object' && (meta.type === 'key' || meta.type === 'delta' || meta.type === 'audio') &&
+        Number.isFinite(meta.ts) && (Buffer.isBuffer(data) || data instanceof ArrayBuffer) && data.byteLength > 0 &&
+        data.byteLength <= 2 * 1024 * 1024);
+}
+
 function safeCallback(callback, payload) {
     if (typeof callback === 'function') callback(payload);
 }
@@ -156,11 +163,37 @@ function probeCodeOnLan(code, onBound = () => {}) {
 function createLocalHostNode({
     hostSecret = crypto.randomBytes(32).toString('hex'),
     resolvePublicEndpoint = null,
+    resolveWebUrl = null,
+    extraIceServers = [],
+    port = 0,
     turn = true
 } = {}) {
     const app = express();
+    // The page a session link opens in a browser: proof that the link really reaches
+    // this device, and what to do with it. No script, no data beyond the code.
+    app.get('/j', (request, response) => {
+        const code = String(request.query.c || '').replace(/[^A-Z0-9]/gi, '').slice(0, 12);
+        response.set({
+            'Content-Type': 'text/html; charset=utf-8',
+            'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
+            'X-Content-Type-Options': 'nosniff',
+            'Referrer-Policy': 'no-referrer',
+            'Cache-Control': 'no-store'
+        });
+        response.send(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Lab show</title>
+<style>body{font-family:system-ui,Segoe UI,Tahoma,sans-serif;background:#050707;color:#eef3f2;display:grid;place-items:center;min-height:100vh;margin:0;padding:16px}
+main{max-width:520px;background:#0d1415;border:1px solid #1f3436;border-radius:14px;padding:24px;line-height:1.8}
+code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-spacing:3px}p[dir=ltr]{text-align:left}</style></head>
+<body><main><h1>Lab show</h1>
+<p>هذا رابط جلسة على جهاز يعمل الآن. افتح تطبيق Lab show والصق هذا الرابط كاملاً مع الرمز <code>${code}</code>.</p>
+<p dir="ltr">This link points to a device running a Lab show session right now. Open the Lab show app and paste this whole link with the code <code>${code}</code>.</p>
+</main></body></html>`);
+    });
+    app.get('/health', (request, response) => response.json({ ok: true }));
     const httpServer = http.createServer(app);
-    const io = new Server(httpServer, { cors: { origin: '*' }, maxHttpBufferSize: 256 * 1024 });
+    // 4 MB: a key frame of the WebSocket fallback video fits in one message.
+    const io = new Server(httpServer, { cors: { origin: '*' }, maxHttpBufferSize: 4 * 1024 * 1024 });
     const store = createSessionStore();
     const rooms = createRoomStore();
 
@@ -220,21 +253,40 @@ function createLocalHostNode({
         if (relay && turnServer) turnServer.removeUser(relay.username);
     }
 
+    // How a global session can be reached: directly through a router port opened with
+    // UPnP, and/or through this device's outbound tunnel (an https address that works
+    // even where only port 443 is allowed). Both are tried at once.
     async function reachFor(networkMode) {
         const lanEndpoint = `${getLocalIPs()[0] || '127.0.0.1'}:${listeningPort}`;
-        if (networkMode !== 'global') return { endpoint: lanEndpoint, reachability: 'lan' };
-        if (typeof resolvePublicEndpoint !== 'function') {
-            return { endpoint: lanEndpoint, reachability: 'upnp-unavailable' };
-        }
-        try {
-            const result = await resolvePublicEndpoint(listeningPort);
-            if (result && result.reachable && result.ip && result.port) {
-                return { endpoint: `${result.ip}:${result.port}`, reachability: 'internet' };
+        if (networkMode !== 'global') return { endpoint: lanEndpoint, reachability: 'lan', webUrl: '', direct: false };
+        const direct = (async () => {
+            if (typeof resolvePublicEndpoint !== 'function') return { reachable: false, reason: 'upnp-unavailable' };
+            try {
+                return (await resolvePublicEndpoint(listeningPort, 'TCP')) || { reachable: false, reason: 'upnp-unavailable' };
+            } catch (error) {
+                return { reachable: false, reason: 'upnp-unavailable' };
             }
-            return { endpoint: lanEndpoint, reachability: (result && result.reason) || 'upnp-unavailable' };
-        } catch (error) {
-            return { endpoint: lanEndpoint, reachability: 'upnp-unavailable' };
-        }
+        })();
+        const web = (async () => {
+            if (typeof resolveWebUrl !== 'function') return '';
+            try {
+                return (await resolveWebUrl(listeningPort)) || '';
+            } catch (error) {
+                return '';
+            }
+        })();
+        const [upnp, webUrl] = await Promise.all([direct, web]);
+        const directOk = Boolean(upnp.reachable && upnp.ip && upnp.port);
+        return {
+            endpoint: directOk ? `${upnp.ip}:${upnp.port}` : lanEndpoint,
+            webUrl,
+            direct: directOk,
+            reachability: webUrl ? 'tunnel' : directOk ? 'internet' : (upnp.reason || 'upnp-unavailable')
+        };
+    }
+
+    function iceFor(relay) {
+        return [...(relay ? relay.iceServers : []), ...extraIceServers];
     }
 
     // ---------- receiving session ----------
@@ -346,11 +398,11 @@ function createLocalHostNode({
             if (store.session) endSession('replaced', 'تم استبدال الرمز برمز جديد.');
 
             const code = await reserveUniqueCode();
-            const { endpoint, reachability } = await reachFor(global ? 'global' : 'local');
+            const { endpoint, reachability, webUrl, direct } = await reachFor(global ? 'global' : 'local');
             const relayToken = global ? generateSessionCode(12) : '';
-            if (global && reachability === 'internet') sessionRelay = await openRelay();
+            if (global && direct) sessionRelay = await openRelay();
             const globalUrl = buildLink({
-                kind: 'send', mode: global ? 'global' : 'local', code, endpoint, token: relayToken, username: name
+                kind: 'send', mode: global ? 'global' : 'local', code, endpoint, token: relayToken, username: name, webUrl
             });
 
             const session = store.create({
@@ -449,7 +501,7 @@ function createLocalHostNode({
                 networkMode: store.serialize().networkMode,
                 expiresAt: store.serialize().expiresAt,
                 // Only after the link token was checked (global sessions).
-                iceServers: store.isGlobal() && sessionRelay ? sessionRelay.iceServers : []
+                iceServers: store.isGlobal() ? iceFor(sessionRelay) : []
             });
         });
 
@@ -527,6 +579,28 @@ function createLocalHostNode({
             io.to(hostSocketId).emit('webrtc:offer', { studentId, offer });
         });
 
+        // ----- media over WebSocket: used when no direct WebRTC path exists (networks that
+        // block UDP, such as many organizations). The sender encodes its screen; this
+        // node passes the encoded chunks to its own receiving window.
+
+        socket.on('student:transport', ({ mode } = {}) => {
+            const student = store.findBySocket(socket.id);
+            if (!student || !hostSocketId) return;
+            student.transport = mode === 'ws' ? 'ws' : 'rtc';
+            io.to(hostSocketId).emit('student:transport', { studentId: student.id, mode: student.transport });
+        });
+
+        socket.on('student:media', (meta, data) => {
+            const student = store.findBySocket(socket.id);
+            if (!student || !student.isSharing || student.isPaused || !hostSocketId || !isMediaChunk(meta, data)) return;
+            io.to(hostSocketId).emit('media:video', { studentId: student.id, type: meta.type, ts: meta.ts, codec: meta.codec }, data);
+        });
+
+        socket.on('host:keyframe', ({ studentId } = {}) => {
+            if (!isHost(socket)) return;
+            sendToStudent(studentId, 'media:keyframe', { studentId });
+        });
+
         socket.on('student:ice', ({ studentId, candidate } = {}) => {
             const student = store.findBySocket(socket.id);
             if (!student || student.id !== studentId || !hostSocketId) return;
@@ -548,10 +622,10 @@ function createLocalHostNode({
             const global = networkMode === 'global';
             endRoom('replaced');
             const code = await reserveUniqueCode();
-            const { endpoint, reachability } = await reachFor(global ? 'global' : 'local');
+            const { endpoint, reachability, webUrl, direct } = await reachFor(global ? 'global' : 'local');
             const token = generateSessionCode(12);
-            if (global && reachability === 'internet') roomRelay = await openRelay();
-            const link = buildLink({ kind: 'room', mode: global ? 'global' : 'local', code, endpoint, token });
+            if (global && direct) roomRelay = await openRelay();
+            const link = buildLink({ kind: 'room', mode: global ? 'global' : 'local', code, endpoint, token, webUrl });
             const room = rooms.create({
                 code, title, networkMode: global ? 'global' : 'local',
                 token, link, reachability, durationMinutes, ownerName
@@ -599,7 +673,7 @@ function createLocalHostNode({
                     participants: room.participants,
                     comments: room.comments
                 },
-                iceServers: room.networkMode === 'global' && roomRelay ? roomRelay.iceServers : []
+                iceServers: room.networkMode === 'global' ? iceFor(roomRelay) : []
             });
             if (roomOwnerSocketId) {
                 io.to(roomOwnerSocketId).emit('room:viewer-joined', {
@@ -624,6 +698,52 @@ function createLocalHostNode({
             if (!result.ok) return fail(callback, result.error);
             emitRoom('room:comment', result.comment);
             safeCallback(callback, { ok: true, comment: result.comment });
+        });
+
+        // Viewers that have no direct WebRTC path receive the owner's encoded screen and a
+        // per-viewer voice mix over this WebSocket, and send their microphone the same way.
+        socket.on('room:transport', ({ mode } = {}) => {
+            const viewer = rooms.viewerBySocket(socket.id);
+            if (!viewer) return;
+            viewer.transport = mode === 'ws' ? 'ws' : 'rtc';
+            if (viewer.transport === 'ws') socket.join('room-ws');
+            else socket.leave('room-ws');
+            if (roomOwnerSocketId) io.to(roomOwnerSocketId).emit('room:viewer-transport', { viewerId: viewer.id, mode: viewer.transport });
+        });
+
+        socket.on('room:video', (meta, data) => {
+            if (!isRoomOwner(socket) || !isMediaChunk(meta, data)) return;
+            for (const viewer of rooms.viewers()) {
+                if (viewer.transport !== 'ws') continue;
+                const target = io.sockets.sockets.get(viewer.socketId);
+                if (!target) continue;
+                // Per-viewer congestion control: a viewer whose connection is backed up
+                // skips frames until the next key frame instead of falling further behind.
+                const backlog = target.conn && target.conn.writeBuffer ? target.conn.writeBuffer.length : 0;
+                if (meta.type !== 'key' && (viewer.needsKey || backlog > 30)) {
+                    viewer.needsKey = true;
+                    continue;
+                }
+                viewer.needsKey = false;
+                target.emit('room:video', { type: meta.type, ts: meta.ts, codec: meta.codec }, data);
+            }
+        });
+
+        socket.on('room:keyframe', () => {
+            const viewer = rooms.viewerBySocket(socket.id);
+            if (viewer && roomOwnerSocketId) io.to(roomOwnerSocketId).emit('room:keyframe-request', { viewerId: viewer.id });
+        });
+
+        socket.on('room:audio', (meta, data) => {
+            const viewer = rooms.viewerBySocket(socket.id);
+            if (!viewer || !roomOwnerSocketId || !isMediaChunk(meta, data)) return;
+            io.to(roomOwnerSocketId).emit('room:audio', { from: viewer.id, ts: meta.ts, sr: meta.sr, ch: meta.ch }, data);
+        });
+
+        socket.on('room:audio-to', (meta, data) => {
+            if (!isRoomOwner(socket) || !meta || !isMediaChunk(meta, data)) return;
+            const viewer = rooms.get(meta.to);
+            if (viewer) io.to(viewer.socketId).emit('room:audio', { from: OWNER_ID, ts: meta.ts, sr: meta.sr, ch: meta.ch }, data);
         });
 
         socket.on('room:mic', ({ on } = {}) => {
@@ -697,7 +817,7 @@ function createLocalHostNode({
     return {
         start: () => new Promise((resolve, reject) => {
             httpServer.once('error', reject);
-            httpServer.listen(0, '0.0.0.0', async () => {
+            httpServer.listen(port, '0.0.0.0', async () => {
                 listeningPort = httpServer.address().port;
                 startUdpResponder();
                 if (turn) {

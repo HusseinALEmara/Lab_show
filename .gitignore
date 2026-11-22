@@ -11,6 +11,7 @@ npm-debug.log*
 # Local environment and configuration
 .env
 .env.*
+!.env.example
 *.local
 .local.env
 local-settings.json
@@ -36,3 +37,4 @@ coverage/
 *.temp
 *.pid
 *.seed
+/resources/cloudflared*
