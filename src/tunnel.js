@@ -19,6 +19,7 @@ function createTunnel({
     token = '',
     publicUrl = '',
     startTimeoutMs = 45000,
+    cwd = undefined,
     spawnFn = spawn
 }) {
     const named = Boolean(token && publicUrl);
@@ -54,7 +55,7 @@ function createTunnel({
             };
             const timer = setTimeout(() => finish(new Error('tunnel did not start in time')), startTimeoutMs);
             try {
-                child = spawnFn(binary, args(), { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+                child = spawnFn(binary, args(), { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], cwd });
             } catch (error) {
                 finish(error);
                 return;

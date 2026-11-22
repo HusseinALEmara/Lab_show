@@ -1,8 +1,6 @@
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const os = require('node:os');
 const zlib = require('node:zlib');
-const dgram = require('node:dgram');
 const { io: connectToRelay } = require('socket.io-client');
 const {
     app,
@@ -16,11 +14,32 @@ const {
     screen
 } = require('electron');
 
-const { createLocalHostNode, UDP_DISCOVERY_PORT } = require('./src/server');
-const { createPortMapper } = require('./src/upnp');
+const { utilityProcess } = require('electron');
+const crypto = require('node:crypto');
 const { createNotificationGuard } = require('./src/notifications');
-const { createTunnel, parseEnv } = require('./src/tunnel');
+const { parseEnv } = require('./src/tunnel');
+const { chooseDataRoot, dataPaths, migrateFrom } = require('./src/app-storage');
 const fs = require('node:fs');
+
+// Everything the installed app writes stays inside its own folder ("data" next to the
+// program): settings, .env, browser caches, logs, crash reports, temporary files and the
+// back end's work folder. Nothing else is installed on the system; uninstalling removes
+// it all, and updates keep it (build/installer.nsh).
+const DEFAULT_USER_DATA = app.getPath('userData');
+const DATA_ROOT = chooseDataRoot({ isPackaged: app.isPackaged, execPath: process.execPath });
+if (DATA_ROOT) {
+    const paths = dataPaths(DATA_ROOT);
+    for (const dir of Object.values(paths)) fs.mkdirSync(dir, { recursive: true });
+    app.setPath('userData', paths.userData);
+    app.setPath('sessionData', paths.sessionData);
+    app.setPath('temp', paths.temp);
+    app.setPath('crashDumps', paths.crashDumps);
+    app.setAppLogsPath(paths.logs);
+    migrateFrom(DEFAULT_USER_DATA, paths.userData);
+}
+const WORK_DIR = path.join(app.getPath('userData'), 'work');
+fs.mkdirSync(WORK_DIR, { recursive: true });
+process.env.TEMP = process.env.TMP = process.env.TMPDIR = app.getPath('temp');
 
 // Optional institution settings (.env): a fixed public domain through a Cloudflare named
 // tunnel, its own TURN server, its own STUN servers, a fixed local port. Looked for
@@ -51,13 +70,11 @@ const {
 let mainWindow = null;
 let tray = null;
 let floatingWindow = null;
-let hostNode = null;
 let hostInfo = { port: 0, ips: [] };
 let isQuitting = false;
 let outgoingState = { sharing: false, paused: false, controlEnabled: false };
 let roomOwnerWindow = null;
 const roomWindows = new Set();
-const portMapper = createPortMapper();
 const notificationGuard = createNotificationGuard();
 
 // Public STUN servers only tell each device its own internet address so the two can
@@ -86,26 +103,104 @@ function cloudflaredPath() {
     return candidates.find((file) => { try { return fs.statSync(file).isFile(); } catch { return false; } }) || exe;
 }
 
-let tunnel = null;
+// ---------- the isolated back end (src/backend.js) ----------
+// It runs in its own process with only a message channel to this one. If it stops, it
+// is started again with the same secret and port, so the windows reconnect by themselves.
+const HOST_SECRET = crypto.randomBytes(32).toString('hex');
+let backend = null;
+let backendPort = Number(process.env.LABSHOW_PORT) || 0;
+let backendRestarts = 0;
+let requestId = 0;
+const pendingRequests = new Map();
 
-// The device's public https address, started on the first global code and kept for the
-// whole run (quick tunnel by default; the institution's domain when .env sets one).
-async function webUrlFor(localPort) {
-    if (process.env.LABSHOW_TUNNEL === 'off') return null;
-    if (!tunnel) {
-        tunnel = createTunnel({
-            binary: cloudflaredPath(),
-            localPort,
-            token: process.env.LABSHOW_TUNNEL_TOKEN || '',
-            publicUrl: process.env.LABSHOW_PUBLIC_URL || ''
+function backendConfig() {
+    return {
+        secret: HOST_SECRET,
+        port: backendPort,
+        cloudflared: cloudflaredPath(),
+        tunnelOff: process.env.LABSHOW_TUNNEL === 'off',
+        tunnelToken: process.env.LABSHOW_TUNNEL_TOKEN || '',
+        publicUrl: process.env.LABSHOW_PUBLIC_URL || '',
+        extraIceServers: INSTITUTION_TURN,
+        workDir: WORK_DIR
+    };
+}
+
+function startBackend() {
+    return new Promise((resolve, reject) => {
+        const child = utilityProcess.fork(path.join(__dirname, 'src', 'backend.js'), [], {
+            serviceName: 'Lab show back end',
+            cwd: WORK_DIR,
+            env: { ...process.env },
+            stdio: 'inherit'
         });
-    }
-    try {
-        return await tunnel.start();
-    } catch (error) {
-        console.error('tunnel', error.message);
-        return null;
-    }
+        backend = child;
+        let ready = false;
+        child.on('message', (message) => {
+            if (!message || typeof message !== 'object') return;
+            if (message.type === 'ready') {
+                ready = true;
+                backendPort = message.info.port;
+                resolve(message.info);
+            } else if (message.type === 'reply' || (message.type === 'error' && message.id)) {
+                const pending = pendingRequests.get(message.id);
+                if (pending) {
+                    pendingRequests.delete(message.id);
+                    pending(message.type === 'reply' ? message.result : null);
+                }
+            } else if (message.type === 'error' && !ready) {
+                reject(new Error(message.message));
+            } else if (message.type === 'log') {
+                console.log(message.message);
+            }
+        });
+        child.on('exit', (code) => {
+            if (backend === child) backend = null;
+            for (const [id, pending] of pendingRequests) {
+                pendingRequests.delete(id);
+                pending(null);
+            }
+            if (!ready) reject(new Error(`back end exited (${code})`));
+            else if (!isQuitting && backendRestarts < 20) {
+                backendRestarts += 1;
+                setTimeout(() => startBackend().catch((error) => console.error('back end', error)), 1000);
+            }
+        });
+        child.postMessage({ type: 'start', config: backendConfig() });
+    });
+}
+
+function backendRequest(type, payload, timeoutMs = 5000) {
+    if (!backend) return Promise.resolve(null);
+    const id = ++requestId;
+    return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+            pendingRequests.delete(id);
+            resolve(null);
+        }, timeoutMs);
+        pendingRequests.set(id, (result) => {
+            clearTimeout(timer);
+            resolve(result);
+        });
+        backend.postMessage({ type, id, ...payload });
+    });
+}
+
+function stopBackend() {
+    const child = backend;
+    if (!child) return Promise.resolve();
+    backend = null;
+    return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+            try { child.kill(); } catch { /* gone */ }
+            resolve();
+        }, 3000);
+        child.once('exit', () => {
+            clearTimeout(timer);
+            resolve();
+        });
+        child.postMessage({ type: 'stop' });
+    });
 }
 
 app.setAppUserModelId('com.labshow.desktop');
@@ -186,52 +281,8 @@ async function quitApplication() {
     floatingWindow = null;
     for (const win of Array.from(roomWindows)) if (!win.isDestroyed()) win.destroy();
     await notificationGuard.restore();
-    await Promise.race([portMapper.release(), new Promise((resolve) => setTimeout(resolve, 1500))]);
-    if (tunnel) tunnel.stop();
-    if (hostNode) {
-        await hostNode.stop();
-        hostNode = null;
-    }
+    await stopBackend();
     app.quit();
-}
-
-function findHostByCodeOnLan(code) {
-    return new Promise((resolve) => {
-        const socket = dgram.createSocket('udp4');
-        let settled = false;
-        const finish = (result) => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timer);
-            try { socket.close(); } catch { /* already closed */ }
-            resolve(result);
-        };
-        const timer = setTimeout(() => finish(null), 1600);
-
-        socket.on('message', (msg, rinfo) => {
-            const text = msg.toString();
-            const prefix = `LAB_SHOW_MATCH:${code}:`;
-            if (text.startsWith(prefix)) {
-                const port = Number(text.slice(prefix.length));
-                if (Number.isInteger(port) && port > 0) finish({ ip: rinfo.address, port });
-            }
-        });
-        socket.on('error', () => finish(null));
-        socket.bind(() => {
-            socket.setBroadcast(true);
-            const packet = Buffer.from(`LAB_SHOW_FIND:${code}`);
-            socket.send(packet, UDP_DISCOVERY_PORT, '255.255.255.255');
-            for (const interfaces of Object.values(os.networkInterfaces())) {
-                for (const iface of interfaces || []) {
-                    if (iface.family !== 'IPv4' || iface.internal || !iface.netmask) continue;
-                    const ip = iface.address.split('.').map(Number);
-                    const mask = iface.netmask.split('.').map(Number);
-                    socket.send(packet, UDP_DISCOVERY_PORT,
-                        ip.map((part, i) => (part | (~mask[i] & 255))).join('.'));
-                }
-            }
-        });
-    });
 }
 
 function sendToRenderer(channel, payload) {
@@ -408,13 +459,8 @@ app.whenReady().then(async () => {
         );
     });
 
-    hostNode = createLocalHostNode({
-        resolvePublicEndpoint: (port, protocol) => portMapper.map(port, protocol),
-        resolveWebUrl: webUrlFor,
-        extraIceServers: INSTITUTION_TURN,
-        port: Number(process.env.LABSHOW_PORT) || 0
-    });
-    hostInfo = { ...(await hostNode.start()), iceServers: [{ urls: STUN_URLS }, ...INSTITUTION_TURN] };
+    const info = await startBackend();
+    hostInfo = { ...info, hostSecret: HOST_SECRET, iceServers: [{ urls: STUN_URLS }, ...INSTITUTION_TURN] };
     createWindowAndTray();
     // pathToFileURL encodes spaces in paths such as "C:\Users\Alwand Center\...".
     const entryUrl = pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href;
@@ -540,7 +586,7 @@ ipcMain.handle('settings:set', (event, changes = {}) => {
     updateNotificationGuard();
     return { ...settings, notificationsSupported: process.platform === 'win32' };
 });
-ipcMain.handle('find-host', (_event, code) => findHostByCodeOnLan(String(code || '')));
+ipcMain.handle('find-host', (_event, code) => backendRequest('find-host', { code: String(code || '') }));
 
 ipcMain.handle('find-global-host', async (_event, { code, username, relayUrl } = {}) => {
     const url = String(relayUrl || process.env.LABSHOW_RELAY_URL || 'http://127.0.0.1:4477');

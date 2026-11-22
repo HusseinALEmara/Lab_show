@@ -51,6 +51,9 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npx electron-builder --win --publish never
+      - name: Install, run, update and uninstall on this Windows machine
+        shell: pwsh
+        run: ./tools/windows-install-test.ps1
       # A pushed v* tag, or a manual run (which creates the tag v<package.json version>).
       - name: Publish the release (one Setup file)
         uses: softprops/action-gh-release@v2
