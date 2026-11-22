@@ -60,7 +60,10 @@ $data = Join-Path $inst 'data'
 foreach ($sub in 'session', 'logs', 'tmp', 'work') {
   if (-not (Test-Path (Join-Path $data $sub))) { Fail "data\$sub missing" }
 }
-if (Test-Path $roaming) { Fail "the app wrote to $roaming" }
+if (Test-Path $roaming) {
+  $found = Get-ChildItem $roaming -Recurse -Force | ForEach-Object { $_.FullName.Substring($roaming.Length) + ' (' + $_.Length + ')' }
+  Fail ("the app wrote to $roaming : " + ($found -join ' | '))
+}
 Pass "everything stays in $data; nothing in $roaming"
 
 # 4. Update over it: the data folder is kept
