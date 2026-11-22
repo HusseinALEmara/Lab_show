@@ -107,7 +107,7 @@ test('settings and .env from older versions are carried over once', () => {
 
 test('the installer keeps the data folder on update and removes everything on uninstall', () => {
     const nsh = fs.readFileSync(path.join(__dirname, '..', 'build', 'installer.nsh'), 'utf8');
-    assert.match(nsh, /!macro customRemoveFiles[\s\S]*\$\{if\} \$\{isUpdated\}[\s\S]*!= "data"[\s\S]*\$\{else\}\s*RMDir \/r "\$INSTDIR"/);
+    assert.match(nsh, /!macro customRemoveFiles[\s\S]*\$\{if\} \$\{isUpdated\}[\s\S]*!= "data"[\s\S]*\$\{else\}[\s\S]*SetOutPath "\$TEMP"\s*RMDir \/r "\$INSTDIR"/);
     const pkg = require('../package.json');
     assert.equal(pkg.build.nsis.oneClick, false, 'an installation window, not a silent one-click install');
     assert.equal(pkg.build.nsis.perMachine, false, 'installed for the user, in a folder the app can write to');

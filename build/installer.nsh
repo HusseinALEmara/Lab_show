@@ -33,6 +33,8 @@ Var pid
     ${Loop}
     FindClose $R0
   ${else}
+    ; Windows will not remove the folder a running program works in: step out first.
+    SetOutPath "$TEMP"
     RMDir /r "$INSTDIR"
   ${endif}
 !macroend
