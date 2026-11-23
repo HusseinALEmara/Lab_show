@@ -360,6 +360,7 @@ body.viewer-active .video-placeholder { display: none; }
 }
 
 /* محددات الشبكة بأزرار مستديرة بدل قائمة منسدلة */
+.send-modes, .receive-tabs { margin-bottom: 12px; }
 .segmented {
     display: grid;
     grid-template-columns: 1fr 1fr;

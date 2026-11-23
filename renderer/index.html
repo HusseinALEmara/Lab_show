@@ -31,11 +31,16 @@
             <h2 id="sendHeading" data-i18n="send.heading"></h2>
             <p class="hint" data-i18n="send.hint"></p>
 
+            <div class="segmented send-modes" id="sendMode" role="group">
+                <button type="button" data-mode="local" class="active" data-i18n="send.modeLocal"></button>
+                <button type="button" data-mode="global" data-i18n="send.modeGlobal"></button>
+            </div>
+
             <div class="card" id="codeCard">
                 <label class="field-label" for="codeInput" data-i18n="send.code"></label>
                 <input id="codeInput" class="code-input ltr" type="text" maxlength="12" autocomplete="off"
                     data-i18n-placeholder="send.codePh" />
-                <label class="field-label" for="sendLinkInput" data-i18n="send.link"></label>
+                <label class="field-label" for="sendLinkInput" id="sendLinkLabel" data-i18n="send.link"></label>
                 <input id="sendLinkInput" class="title-input ltr" type="text" autocomplete="off"
                     data-i18n-placeholder="send.linkPh" />
                 <label class="field-label" for="joinTitleInput" data-i18n="send.title"></label>
@@ -99,6 +104,11 @@
         <section class="pane receive-pane" aria-labelledby="recvHeading">
             <h2 id="recvHeading" data-i18n="recv.heading"></h2>
             <p class="hint" data-i18n="recv.hint"></p>
+
+            <div class="segmented receive-tabs" id="linkTabs" role="tablist">
+                <button type="button" data-page="local" class="active" data-i18n="link.local"></button>
+                <button type="button" data-page="global" data-i18n="link.global"></button>
+            </div>
 
             <div class="receive-top">
                 <div class="card" id="codeSettingsCard">

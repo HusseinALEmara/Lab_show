@@ -27,6 +27,7 @@
 
     const ids = [
         'liveStatusBar', 'liveStatusText',
+        'sendMode', 'sendLinkLabel', 'linkTabs',
         'codeCard', 'broadcastCard', 'codeInput', 'sendLinkInput', 'joinTitleInput',
         'approveCodeBtn', 'cancelCodeBtn', 'outgoingStatus', 'studentIdentity', 'broadcastStatusPill',
         'titleDisplayBtn', 'titleDisplayText', 'titleEditor', 'broadcastTitleInput', 'titleUpdateBtn',
@@ -127,6 +128,40 @@
 
     bindSegmented(dom.networkModeSelect);
     bindSegmented(dom.pubNetworkMode);
+
+    function setSegmentedMode(element, mode) {
+        const button = element.querySelector(`button[data-mode="${mode}"]`);
+        if (button && !button.classList.contains('active')) button.click();
+    }
+
+    function updateSendMode(mode) {
+        const global = mode === 'global';
+        dom.sendLinkLabel.hidden = !global;
+        dom.sendLinkInput.hidden = !global;
+        if (!global) dom.sendLinkInput.value = '';
+    }
+
+    function updateLinkTabs() {
+        const mode = segmentedValue(dom.networkModeSelect);
+        dom.linkTabs.querySelectorAll('button').forEach((button) => {
+            button.classList.toggle('active', button.dataset.page === mode);
+        });
+    }
+
+    dom.sendMode.addEventListener('click', (event) => {
+        const button = event.target.closest('button[data-mode]');
+        if (button) updateSendMode(button.dataset.mode);
+    });
+    dom.linkTabs.addEventListener('click', (event) => {
+        const button = event.target.closest('button[data-page]');
+        if (!button) return;
+        setSegmentedMode(dom.networkModeSelect, button.dataset.page);
+        updateLinkTabs();
+    });
+    dom.networkModeSelect.addEventListener('click', updateLinkTabs);
+    updateSendMode('local');
+    updateLinkTabs();
+
     I18n.onChange(() => {
         syncOutgoingUi();
         renderHostSession(hostSession);

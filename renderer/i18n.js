@@ -24,6 +24,8 @@
         'app.subtitle': 'مشاركة الشاشات واستقبالها',
 
         'send.heading': 'إرسال شاشتي',
+        'send.modeLocal': 'البحث المحلي',
+        'send.modeGlobal': 'البث العالمي',
         'send.hint': 'أرسل شاشتك إلى جهاز واحد بإدخال رمزه ورابطه. يستمر استقبالك للبثوث كما هو.',
         'send.code': 'رمز الجهاز المستقبِل',
         'send.codePh': 'رمز من 12 خانة',
@@ -80,6 +82,8 @@
         'control.startFirst': 'ابدأ البث أولاً قبل تفعيل التحكم.',
 
         'recv.heading': 'استقبال البثوث',
+        'link.local': 'إنشاء رابط محلي',
+        'link.global': 'إنشاء رابط عالمي',
         'recv.hint': 'أنشئ رمزاً ورابطاً يرسل إليهما الآخرون شاشاتهم، وشاهد عدة بثوث معاً.',
         'recv.duration': 'مدة صلاحية الرمز',
         'dur.20': '20 دقيقة',
@@ -247,6 +251,8 @@
         'app.subtitle': 'Share and receive screens',
 
         'send.heading': 'Send my screen',
+        'send.modeLocal': 'Local discovery',
+        'send.modeGlobal': 'Global broadcast',
         'send.hint': 'Send your screen to one device using its code and link. Receiving keeps running.',
         'send.code': "Receiver's code",
         'send.codePh': '12-character code',
@@ -303,6 +309,8 @@
         'control.startFirst': 'Start the broadcast before allowing control.',
 
         'recv.heading': 'Receive broadcasts',
+        'link.local': 'Create local link',
+        'link.global': 'Create global link',
         'recv.hint': 'Create a code and link others send their screens to, and watch several at once.',
         'recv.duration': 'Code valid for',
         'dur.20': '20 minutes',
