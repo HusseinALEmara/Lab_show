@@ -33,14 +33,6 @@ async function pageMatching(browser, part, timeoutMs = 20000) {
 
 const text = (page, selector) => page.locator(selector).innerText().catch(() => '');
 
-// The main window shows one screen at a time (creation or sending/joining);
-// this switches to the one the command needs.
-async function showScreen(page, name) {
-    const target = name === 'create' ? '#screenCreate' : '#screenSend';
-    if (await page.locator(target).isVisible()) return;
-    await page.click(name === 'create' ? '#navCreate' : '#navSend');
-}
-
 async function videoFrames(page, selector) {
     return page.evaluate((sel) => {
         const video = document.querySelector(sel);
@@ -88,7 +80,6 @@ const commands = {
     // Language through the settings panel: Arabic -> English -> Arabic.
     async language(browser) {
         const page = await pageMatching(browser, 'index.html');
-        await showScreen(page, 'send');
         const pick = async (value) => {
             if (await page.locator('#settingsPanel').isHidden()) await page.click('#settingsButton');
             await page.click(`#settingsPanel [data-name="language"] button[data-value="${value}"]`);
@@ -131,9 +122,6 @@ const commands = {
 
     async stopSending(browser) {
         const page = await pageMatching(browser, 'index.html');
-        // The live controls live on the private tab; make sure it is the one shown.
-        await showScreen(page, 'send');
-        await page.click('#sendTabDirect');
         if (await page.locator('#broadcastCard').isVisible()) await page.click('#stopBroadcastBtn');
         await page.waitForSelector('#codeCard:not([hidden])', { timeout: 10000 });
         return { status: await text(page, '#outgoingStatus') };
@@ -141,8 +129,6 @@ const commands = {
 
     async outgoingStatus(browser) {
         const page = await pageMatching(browser, 'index.html');
-        await showScreen(page, 'send');
-        await page.click('#sendTabDirect');
         return { status: await text(page, '#outgoingStatus') };
     },
 
@@ -153,8 +139,6 @@ const commands = {
 
     async createReceive(browser) {
         const page = await pageMatching(browser, 'index.html');
-        await showScreen(page, 'create');
-        await page.click('#createTabPrivate');
         await page.click(`#networkModeSelect button[data-mode="${args.mode || 'local'}"]`);
         await page.click('#generateBtn');
         await page.waitForSelector('#generatedBox:not([hidden])', { timeout: 30000 });
@@ -168,8 +152,6 @@ const commands = {
 
     async send(browser) {
         const page = await pageMatching(browser, 'index.html');
-        await showScreen(page, 'send');
-        await page.click('#sendTabDirect');
         await page.fill('#codeInput', args.code || '');
         await page.fill('#sendLinkInput', args.link || '');
         await page.fill('#joinTitleInput', args.title || '');
@@ -190,8 +172,6 @@ const commands = {
 
     async senderState(browser) {
         const page = await pageMatching(browser, 'index.html');
-        await showScreen(page, 'send');
-        await page.click('#sendTabDirect');
         return {
             live: await text(page, '#liveStatusText'),
             pill: await text(page, '#broadcastStatusPill'),
@@ -201,7 +181,6 @@ const commands = {
 
     async watchIncoming(browser) {
         const page = await pageMatching(browser, 'index.html');
-        await showScreen(page, 'create');
         await page.waitForSelector('.student-card .select-btn:not([disabled])', { timeout: 40000 });
         const cards = await page.locator('.student-card .tile-title').allInnerTexts();
         const index = args.title ? cards.findIndex((c) => c.includes(args.title)) : 0;
@@ -221,8 +200,6 @@ const commands = {
 
     async allowControl(browser) {
         const page = await pageMatching(browser, 'index.html');
-        await showScreen(page, 'send');
-        await page.click('#sendTabDirect');
         await page.click('#studentControlToggle');
         await page.waitForTimeout(1500);
         return { controlStatus: await text(page, '#studentControlStatus'), toggle: await text(page, '#studentControlToggle') };
@@ -230,7 +207,6 @@ const commands = {
 
     async keysState(browser) {
         const page = await pageMatching(browser, 'index.html');
-        await showScreen(page, 'create');
         await page.waitForTimeout(1000);
         return {
             keysStatus: await text(page, '#teacherControlStatus'),
@@ -240,8 +216,6 @@ const commands = {
 
     async tryAllowControl(browser) {
         const page = await pageMatching(browser, 'index.html');
-        await showScreen(page, 'send');
-        await page.click('#sendTabDirect');
         // The button is hidden in global mode; press it from script anyway to prove the
         // server refuses too.
         await page.evaluate(() => document.getElementById('studentControlToggle').click());
@@ -251,8 +225,6 @@ const commands = {
 
     async startRoom(browser) {
         const page = await pageMatching(browser, 'index.html');
-        await showScreen(page, 'send');
-        await page.click('#sendTabPublic');
         await page.fill('#pubTitleInput', args.title || '');
         await page.fill('#pubNameInput', args.name || '');
         await page.click(`#pubNetworkMode button[data-mode="${args.mode || 'local'}"]`);
@@ -269,8 +241,7 @@ const commands = {
 
     async joinRoom(browser) {
         const page = await pageMatching(browser, 'index.html');
-        await showScreen(page, 'send');
-        await page.click('#sendTabJoin');
+        await page.fill('#joinCodeInput', args.code || '');
         await page.fill('#joinLinkInput', args.link || '');
         await page.fill('#joinNameInput', args.name || '');
         await page.click('#joinRoomBtn');

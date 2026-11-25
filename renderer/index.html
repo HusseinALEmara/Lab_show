@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="styles.css" />
 </head>
 
-<body class="app-page">
+<body>
     <header class="app-bar">
         <div class="brand">
             <img class="brand-mark small" src="logo.png" alt="" />
@@ -25,119 +25,146 @@
         </div>
     </header>
 
-    <!-- الشاشتان لا تظهران معاً: لكل واحدة زر خاص بها في الشريط العلوي -->
-    <nav class="screen-nav" role="navigation">
-        <button class="screen-link active" id="navCreate" type="button" aria-current="page"
-            data-i18n="nav.create"></button>
-        <button class="screen-link" id="navSend" type="button" data-i18n="nav.send"></button>
-    </nav>
+    <main class="split">
+        <!-- ===== Send ===== -->
+        <section class="pane send-pane" aria-labelledby="sendHeading">
+            <h2 id="sendHeading" data-i18n="send.heading"></h2>
+            <p class="hint" data-i18n="send.hint"></p>
 
-    <main class="screens">
-        <!-- ===== الشاشة 1: إنشاء (رموز وجلسات) ===== -->
-        <section class="screen create-screen" id="screenCreate" aria-labelledby="recvHeading">
-            <h2 id="recvHeading" data-i18n="create.heading"></h2>
-            <p class="hint" data-i18n="create.hint"></p>
+            <div class="segmented send-modes" id="sendMode" role="group">
+                <button type="button" data-mode="local" class="active" data-i18n="send.modeLocal"></button>
+                <button type="button" data-mode="global" data-i18n="send.modeGlobal"></button>
+            </div>
 
-            <div id="codeSettingsCard" class="create-forms">
-                <div class="pane-tabs" id="createTabs" role="tablist">
-                    <button class="pane-tab active" id="createTabPrivate" type="button" role="tab"
-                        aria-selected="true" aria-controls="createPanelPrivate" data-tab="private"
-                        data-i18n="tab.single"></button>
-                    <button class="pane-tab" id="createTabPublic" type="button" role="tab" aria-selected="false"
-                        aria-controls="createPanelPublic" data-tab="public" data-i18n="tab.public"></button>
-                    <button class="pane-tab" id="createTabMulti" type="button" role="tab" aria-selected="false"
-                        aria-controls="createPanelMulti" data-tab="multi" data-i18n="tab.multi"></button>
+            <div class="card" id="codeCard">
+                <label class="field-label" for="codeInput" data-i18n="send.code"></label>
+                <input id="codeInput" class="code-input ltr" type="text" maxlength="12" autocomplete="off"
+                    data-i18n-placeholder="send.codePh" />
+                <label class="field-label" for="sendLinkInput" id="sendLinkLabel" data-i18n="send.link"></label>
+                <input id="sendLinkInput" class="title-input ltr" type="text" autocomplete="off"
+                    data-i18n-placeholder="send.linkPh" />
+                <label class="field-label" for="joinTitleInput" data-i18n="send.title"></label>
+                <input id="joinTitleInput" class="title-input" type="text" maxlength="80" autocomplete="off"
+                    data-i18n-placeholder="send.titlePh" />
+                <div class="btn-row">
+                    <button class="btn-ghost" id="cancelCodeBtn" type="button" data-i18n="send.cancel"></button>
+                    <button class="btn-primary" id="approveCodeBtn" type="button" data-i18n="send.start"></button>
+                </div>
+                <div class="status-text" id="outgoingStatus" role="status"></div>
+            </div>
+
+            <div class="card status-card" id="broadcastCard" hidden>
+                <div class="status-row">
+                    <span class="pill" id="broadcastStatusPill"></span>
+                    <span class="identity-chip ltr" id="studentIdentity"></span>
+                </div>
+                <button class="title-display" id="titleDisplayBtn" type="button">
+                    <span id="titleDisplayText">—</span>
+                    <span class="edit-hint" data-i18n="send.editHint"></span>
+                </button>
+                <div class="inline-form" id="titleEditor" hidden>
+                    <input id="broadcastTitleInput" class="title-input" type="text" maxlength="80" autocomplete="off" />
+                    <button class="btn-secondary" id="titleUpdateBtn" type="button" data-i18n="send.update"></button>
+                </div>
+                <button class="btn-warning full" id="studentControlToggle" type="button" role="switch"
+                    aria-checked="false" disabled></button>
+                <div class="split-row">
+                    <button class="btn-secondary" id="pauseBroadcastBtn" type="button" disabled></button>
+                    <button class="btn-danger" id="stopBroadcastBtn" type="button" data-i18n="send.stop"></button>
+                </div>
+                <div class="remote-status" id="studentControlStatus"></div>
+            </div>
+
+            <div class="card" id="publicCard">
+                <h3 data-i18n="pub.heading"></h3>
+                <p class="hint" data-i18n="pub.hint"></p>
+                <label class="field-label" for="pubTitleInput" data-i18n="pub.title"></label>
+                <input id="pubTitleInput" class="title-input" type="text" maxlength="80" autocomplete="off"
+                    data-i18n-placeholder="pub.titlePh" />
+                <label class="field-label" for="pubNameInput" data-i18n="pub.name"></label>
+                <input id="pubNameInput" class="title-input" type="text" maxlength="80" autocomplete="off"
+                    data-i18n-placeholder="pub.namePh" />
+                <label class="field-label" data-i18n="net.label"></label>
+                <div class="segmented" id="pubNetworkMode" role="group">
+                    <button type="button" data-mode="local" class="active" data-i18n="net.local"></button>
+                    <button type="button" data-mode="global" data-i18n="net.global"></button>
+                </div>
+                <label class="field-label" for="pubDurationSelect" data-i18n="recv.duration"></label>
+                <select id="pubDurationSelect">
+                    <option value="60" data-i18n="dur.60"></option>
+                    <option value="180" selected data-i18n="dur.180"></option>
+                    <option value="480" data-i18n="dur.480"></option>
+                </select>
+                <button class="btn-primary full" id="pubStartBtn" type="button" data-i18n="pub.start"></button>
+                <div class="status-text" id="pubStatus" role="status"></div>
+            </div>
+        </section>
+
+        <!-- ===== Receive ===== -->
+        <section class="pane receive-pane" aria-labelledby="recvHeading">
+            <h2 id="recvHeading" data-i18n="recv.heading"></h2>
+            <p class="hint" data-i18n="recv.hint"></p>
+
+            <div class="segmented receive-tabs" id="linkTabs" role="tablist">
+                <button type="button" data-page="local" class="active" data-i18n="link.local"></button>
+                <button type="button" data-page="global" data-i18n="link.global"></button>
+            </div>
+
+            <div class="receive-top">
+                <div class="card" id="codeSettingsCard">
+                    <label class="field-label" for="durationSelect" data-i18n="recv.duration"></label>
+                    <select id="durationSelect">
+                        <option value="20" data-i18n="dur.20"></option>
+                        <option value="60" data-i18n="dur.60"></option>
+                        <option value="180" selected data-i18n="dur.180"></option>
+                        <option value="480" data-i18n="dur.480"></option>
+                    </select>
+                    <label class="field-label" data-i18n="net.label"></label>
+                    <div class="segmented" id="networkModeSelect" role="group">
+                        <button type="button" data-mode="local" class="active" data-i18n="net.local"></button>
+                        <button type="button" data-mode="global" data-i18n="net.global"></button>
+                    </div>
+                    <button class="btn-primary full" id="generateBtn" type="button" disabled
+                        data-i18n="recv.generate"></button>
+                    <div class="status-text" id="hostStatus" role="status"></div>
                 </div>
 
-                <!-- خاص لشخص واحد: رمز يدخل به جهاز واحد شاشته. -->
-                <div class="tab-panel" id="createPanelPrivate" role="tabpanel">
-                    <div class="card">
-                        <p class="hint" data-i18n="create.privateHint"></p>
-                        <label class="field-label" for="durationSelect" data-i18n="recv.duration"></label>
-                        <select id="durationSelect">
-                            <option value="20" data-i18n="dur.20"></option>
-                            <option value="60" data-i18n="dur.60"></option>
-                            <option value="180" selected data-i18n="dur.180"></option>
-                            <option value="480" data-i18n="dur.480"></option>
-                        </select>
-                        <label class="field-label" data-i18n="net.label"></label>
-                        <div class="segmented" id="networkModeSelect" role="group">
-                            <button type="button" data-mode="local" class="active" data-i18n="net.local"></button>
-                            <button type="button" data-mode="global" data-i18n="net.global"></button>
-                        </div>
-                        <button class="btn-primary full generate-btn" id="generateBtn" type="button" disabled
-                            data-i18n="recv.generate"></button>
+                <div class="card" id="generatedBox" hidden>
+                    <div class="share-row">
+                        <span class="field-label" data-i18n="recv.code"></span>
+                        <div class="generated-code ltr" id="generatedCode">------</div>
+                        <button class="btn-secondary small" id="copyCodeBtn" type="button" data-i18n="recv.copy"></button>
                     </div>
+                    <div class="share-row">
+                        <span class="field-label" data-i18n="recv.link"></span>
+                        <code class="link-text ltr" id="globalLinkText"></code>
+                        <button class="btn-secondary small" id="copyGlobalLinkBtn" type="button" data-i18n="recv.copy"></button>
+                    </div>
+                    <div class="reach-note" id="reachNote" hidden></div>
+                    <div class="meta-row">
+                        <span id="generatedTitle"></span>
+                        <span id="hostTimer"></span>
+                        <span id="hostStateText"></span>
+                    </div>
+                    <button class="btn-danger full" id="deleteCodeBtn" type="button" data-i18n="recv.end"></button>
                 </div>
 
-                <!-- بث عام: رمز ورابط يصلان إلى أي جهاز. -->
-                <div class="tab-panel" id="createPanelPublic" role="tabpanel" hidden>
-                    <div class="card">
-                        <p class="hint" data-i18n="create.publicHint"></p>
-                        <label class="field-label" for="publicDurationSelect" data-i18n="recv.duration"></label>
-                        <select id="publicDurationSelect">
-                            <option value="20" data-i18n="dur.20"></option>
-                            <option value="60" data-i18n="dur.60"></option>
-                            <option value="180" selected data-i18n="dur.180"></option>
-                            <option value="480" data-i18n="dur.480"></option>
-                        </select>
-                        <label class="field-label" data-i18n="net.label"></label>
-                        <div class="segmented" id="publicNetworkMode" role="group">
-                            <button type="button" data-mode="local" data-i18n="net.local"></button>
-                            <button type="button" data-mode="global" class="active" data-i18n="net.global"></button>
-                        </div>
-                        <button class="btn-primary full generate-btn" id="publicGenerateBtn" type="button" disabled
-                            data-i18n="recv.generate"></button>
-                    </div>
-                </div>
-
-                <!-- بث عمومي لعدة مشاهدين: رمز يستقبل شاشات عدة أجهزة. -->
-                <div class="tab-panel" id="createPanelMulti" role="tabpanel" hidden>
-                    <div class="card">
-                        <p class="hint" data-i18n="create.multiHint"></p>
-                        <label class="field-label" for="multiDurationSelect" data-i18n="recv.duration"></label>
-                        <select id="multiDurationSelect">
-                            <option value="20" data-i18n="dur.20"></option>
-                            <option value="60" data-i18n="dur.60"></option>
-                            <option value="180" selected data-i18n="dur.180"></option>
-                            <option value="480" data-i18n="dur.480"></option>
-                        </select>
-                        <label class="field-label" data-i18n="net.label"></label>
-                        <div class="segmented" id="multiNetworkMode" role="group">
-                            <button type="button" data-mode="local" class="active" data-i18n="net.local"></button>
-                            <button type="button" data-mode="global" data-i18n="net.global"></button>
-                        </div>
-                        <button class="btn-primary full generate-btn" id="multiGenerateBtn" type="button" disabled
-                            data-i18n="recv.generate"></button>
-                    </div>
+                <div class="card" id="joinCard">
+                    <h3 data-i18n="join.heading"></h3>
+                    <label class="field-label" for="joinCodeInput" data-i18n="join.code"></label>
+                    <input id="joinCodeInput" class="code-input ltr" type="text" maxlength="12" autocomplete="off"
+                        data-i18n-placeholder="send.codePh" />
+                    <label class="field-label" for="joinLinkInput" data-i18n="join.link"></label>
+                    <input id="joinLinkInput" class="title-input ltr" type="text" autocomplete="off"
+                        data-i18n-placeholder="join.linkPh" />
+                    <label class="field-label" for="joinNameInput" data-i18n="join.name"></label>
+                    <input id="joinNameInput" class="title-input" type="text" maxlength="80" autocomplete="off"
+                        data-i18n-placeholder="pub.namePh" />
+                    <button class="btn-secondary full" id="joinRoomBtn" type="button" data-i18n="join.button"></button>
+                    <div class="status-text" id="joinStatus" role="status"></div>
                 </div>
             </div>
 
-            <div class="status-text" id="hostStatus" role="status"></div>
-
-            <div class="card" id="generatedBox" hidden>
-                <div class="share-row">
-                    <span class="field-label" data-i18n="recv.code"></span>
-                    <div class="generated-code ltr" id="generatedCode">------</div>
-                    <button class="btn-secondary small" id="copyCodeBtn" type="button"
-                        data-i18n="recv.copy"></button>
-                </div>
-                <div class="share-row">
-                    <span class="field-label" data-i18n="recv.link"></span>
-                    <code class="link-text ltr" id="globalLinkText"></code>
-                    <button class="btn-secondary small" id="copyGlobalLinkBtn" type="button"
-                        data-i18n="recv.copy"></button>
-                </div>
-                <div class="reach-note" id="reachNote" hidden></div>
-                <div class="meta-row">
-                    <span id="generatedTitle"></span>
-                    <span id="hostTimer"></span>
-                    <span id="hostStateText"></span>
-                </div>
-                <button class="btn-danger full" id="deleteCodeBtn" type="button" data-i18n="recv.end"></button>
-            </div>
-
-            <!-- استقبال البثوث: الشاشات الواردة وقائمتها -->
             <div class="broadcasts-layout">
                 <section class="stage-column">
                     <div class="video-box" id="videoBox">
@@ -202,106 +229,6 @@
                         </div>
                     </div>
                 </aside>
-            </div>
-        </section>
-
-        <!-- ===== الشاشة 2: الإرسال والانضمام ===== -->
-        <section class="screen send-screen" id="screenSend" hidden aria-labelledby="sendHeading">
-            <h2 id="sendHeading" data-i18n="send.heading"></h2>
-            <p class="hint" data-i18n="send.hint"></p>
-
-            <div class="pane-tabs" id="sendTabs" role="tablist">
-                <button class="pane-tab active" id="sendTabDirect" type="button" role="tab" aria-selected="true"
-                    aria-controls="sendPanelDirect" data-tab="direct" data-i18n="tab.single"></button>
-                <button class="pane-tab" id="sendTabJoin" type="button" role="tab" aria-selected="false"
-                    aria-controls="sendPanelJoin" data-tab="join" data-i18n="tab.public"></button>
-                <button class="pane-tab" id="sendTabPublic" type="button" role="tab" aria-selected="false"
-                    aria-controls="sendPanelPublic" data-tab="public" data-i18n="tab.multi"></button>
-            </div>
-
-            <!-- خاص لشخص واحد: أرسل شاشتي إلى جهاز واحد. -->
-            <div class="tab-panel" id="sendPanelDirect" role="tabpanel">
-                <div class="card" id="codeCard">
-                    <label class="field-label" for="codeInput" data-i18n="send.code"></label>
-                    <input id="codeInput" class="code-input ltr" type="text" maxlength="12" autocomplete="off"
-                        data-i18n-placeholder="send.codePh" />
-                    <label class="field-label" for="sendLinkInput" data-i18n="send.link"></label>
-                    <input id="sendLinkInput" class="title-input ltr" type="text" autocomplete="off"
-                        data-i18n-placeholder="send.linkPh" />
-                    <label class="field-label" for="joinTitleInput" data-i18n="send.title"></label>
-                    <input id="joinTitleInput" class="title-input" type="text" maxlength="80" autocomplete="off"
-                        data-i18n-placeholder="send.titlePh" />
-                    <div class="btn-row">
-                        <button class="btn-ghost" id="cancelCodeBtn" type="button" data-i18n="send.cancel"></button>
-                        <button class="btn-primary" id="approveCodeBtn" type="button" data-i18n="send.start"></button>
-                    </div>
-                    <div class="status-text" id="outgoingStatus" role="status"></div>
-                </div>
-
-                <div class="card status-card" id="broadcastCard" hidden>
-                    <div class="status-row">
-                        <span class="pill" id="broadcastStatusPill"></span>
-                        <span class="identity-chip ltr" id="studentIdentity"></span>
-                    </div>
-                    <button class="title-display" id="titleDisplayBtn" type="button">
-                        <span id="titleDisplayText">—</span>
-                        <span class="edit-hint" data-i18n="send.editHint"></span>
-                    </button>
-                    <div class="inline-form" id="titleEditor" hidden>
-                        <input id="broadcastTitleInput" class="title-input" type="text" maxlength="80"
-                            autocomplete="off" />
-                        <button class="btn-secondary" id="titleUpdateBtn" type="button" data-i18n="send.update"></button>
-                    </div>
-                    <button class="btn-warning full" id="studentControlToggle" type="button" role="switch"
-                        aria-checked="false" disabled></button>
-                    <div class="split-row">
-                        <button class="btn-secondary" id="pauseBroadcastBtn" type="button" disabled></button>
-                        <button class="btn-danger" id="stopBroadcastBtn" type="button" data-i18n="send.stop"></button>
-                    </div>
-                    <div class="remote-status" id="studentControlStatus"></div>
-                </div>
-            </div>
-
-            <!-- بث عام: انضم إلى بث عمومي برابطه. -->
-            <div class="tab-panel" id="sendPanelJoin" role="tabpanel" hidden>
-                <div class="card" id="joinCard">
-                    <p class="hint" data-i18n="join.hint"></p>
-                    <label class="field-label" for="joinLinkInput" data-i18n="join.link"></label>
-                    <input id="joinLinkInput" class="title-input ltr" type="text" autocomplete="off"
-                        data-i18n-placeholder="join.linkPh" />
-                    <label class="field-label" for="joinNameInput" data-i18n="join.name"></label>
-                    <input id="joinNameInput" class="title-input" type="text" maxlength="80" autocomplete="off"
-                        data-i18n-placeholder="pub.namePh" />
-                    <button class="btn-secondary full" id="joinRoomBtn" type="button"
-                        data-i18n="join.button"></button>
-                    <div class="status-text" id="joinStatus" role="status"></div>
-                </div>
-            </div>
-
-            <!-- بث عمومي لعدة مشاهدين: ابدأ بثك ليراه عدة أشخاص. -->
-            <div class="tab-panel" id="sendPanelPublic" role="tabpanel" hidden>
-                <div class="card" id="publicCard">
-                    <p class="hint" data-i18n="pub.hint"></p>
-                    <label class="field-label" for="pubTitleInput" data-i18n="pub.title"></label>
-                    <input id="pubTitleInput" class="title-input" type="text" maxlength="80" autocomplete="off"
-                        data-i18n-placeholder="pub.titlePh" />
-                    <label class="field-label" for="pubNameInput" data-i18n="pub.name"></label>
-                    <input id="pubNameInput" class="title-input" type="text" maxlength="80" autocomplete="off"
-                        data-i18n-placeholder="pub.namePh" />
-                    <label class="field-label" data-i18n="net.label"></label>
-                    <div class="segmented" id="pubNetworkMode" role="group">
-                        <button type="button" data-mode="local" class="active" data-i18n="net.local"></button>
-                        <button type="button" data-mode="global" data-i18n="net.global"></button>
-                    </div>
-                    <label class="field-label" for="pubDurationSelect" data-i18n="pub.duration"></label>
-                    <select id="pubDurationSelect">
-                        <option value="60" data-i18n="dur.60"></option>
-                        <option value="180" selected data-i18n="dur.180"></option>
-                        <option value="480" data-i18n="dur.480"></option>
-                    </select>
-                    <button class="btn-primary full" id="pubStartBtn" type="button" data-i18n="pub.start"></button>
-                    <div class="status-text" id="pubStatus" role="status"></div>
-                </div>
             </div>
         </section>
     </main>
