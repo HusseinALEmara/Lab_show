@@ -108,21 +108,24 @@ test('a session never accepts more than the promised 20 direct viewers', () => {
     const store = createSessionStore();
     store.create({ code: 'ABCDEFGHJKLM', maxViewers: 1000 });
     assert.equal(store.session.maxViewers, 20);
-    // One presenter plus 20 direct viewers: the 22nd device must be refused.
-    for (let i = 0; i < 21; i++) {
+    // Twenty direct viewers are allowed; the 21st must be refused.
+    for (let i = 0; i < 20; i++) {
         assert.equal(store.join({ code: 'ABCDEFGHJKLM', socketId: `s${i}` }).ok, true);
     }
     assert.equal(store.join({ code: 'ABCDEFGHJKLM', socketId: 'extra' }).reason, 'session-full');
 });
 
-test('the presenter role is assigned once, never granted by what a client asks for', () => {
+test('joining never grants the presenter role; starting a share promotes one device', () => {
     const store = createSessionStore();
     store.create({ code: 'ABCDEFGHJKLM' });
     const first = store.join({ code: 'ABCDEFGHJKLM', socketId: 's1', role: 'broadcaster' });
     const second = store.join({ code: 'ABCDEFGHJKLM', socketId: 's2', role: 'broadcaster' });
-    assert.equal(first.student.role, 'broadcaster');
+    assert.equal(first.student.role, 'viewer');
     assert.equal(second.student.role, 'viewer');
-    assert.equal(store.serialize().broadcasterId, first.student.id);
+    assert.equal(store.serialize().broadcasterId, null);
+    assert.equal(store.setBroadcaster(second.student.id), true);
+    assert.equal(store.serialize().broadcasterId, second.student.id);
+    assert.equal(store.get(second.student.id).role, 'broadcaster');
 });
 
 test('a protected session refuses wrong or missing passwords', () => {
@@ -144,4 +147,18 @@ test('relay trees reject self-attachment and cycles', () => {
     assert.equal(store.addRelayChild(b.id, c.id), true);
     assert.equal(store.addRelayChild(c.id, a.id), false, 'cycle');
     assert.doesNotThrow(() => store.getRelayTree());
+});
+
+test('detaching one child restores its viewer slot even if siblings remain', () => {
+    const store = createSessionStore();
+    store.create({ code: 'ABCDEFGHJKLM' });
+    const a = store.join({ code: 'ABCDEFGHJKLM', socketId: 's1' }).student;
+    const b = store.join({ code: 'ABCDEFGHJKLM', socketId: 's2' }).student;
+    const c = store.join({ code: 'ABCDEFGHJKLM', socketId: 's3' }).student;
+    store.addRelayChild(a.id, b.id);
+    store.addRelayChild(a.id, c.id);
+    store.removeRelayChild(a.id, b.id);
+    assert.equal(store.get(b.id).parentId, null);
+    assert.equal(store.get(b.id).role, 'viewer');
+    assert.equal(store.countDirectViewers(), 2);
 });

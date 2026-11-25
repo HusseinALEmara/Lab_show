@@ -233,6 +233,9 @@
                 myRole = 'host';
                 broadcastMeta.textContent = `${t('mesh.host')} · ${sessionCode}`;
                 btnViewIncoming.hidden = false;
+                // Attach signaling listeners now so an early offer is not lost while
+                // the host is still on the link page.
+                setupBroadcastUI();
             });
         } catch (err) {
             meshCreateBtn.disabled = false;
@@ -287,9 +290,7 @@
         setStatus(meshJoinStatus, 'recv.generating');
 
         try {
-            const urls = [];
-            if (parsed.host && parsed.port) urls.push(`http://${parsed.host}:${parsed.port}`);
-            if (parsed.webUrl) urls.push(parsed.webUrl);
+            const urls = Links.connectTargets(parsed);
 
             let connected = false;
             for (const url of urls) {
@@ -339,13 +340,13 @@
             sessionCode = parsed.code;
             sessionPassword = parsed.password || password;
             networkMode = parsed.mode;
-            // The server assigns the role: the first device to join becomes the
-            // presenter, the rest are viewers. Never trust a client-supplied role.
+            // The server decides who presents; the link's username is part of the
+            // global-session credential and must be forwarded exactly.
             await new Promise((resolve, reject) => {
                 socket.timeout(10000).emit('student:join', {
                     code: parsed.code,
                     title: name,
-                    username: '',
+                    username: parsed.username || '',
                     token: parsed.token || '',
                     password: parsed.password || password,
                     protocolVersion: window.LabShowProtocol ? window.LabShowProtocol.PROTOCOL_VERSION : undefined
@@ -387,7 +388,9 @@
 
     // ---------- Broadcast UI setup ----------
     function setupBroadcastUI() {
-        const isPresenter = myRole === 'broadcaster';
+        // A viewer may start if nobody has claimed the presenter slot yet; the
+        // server promotes the first device that actually starts sharing.
+        const isPresenter = myRole === 'broadcaster' || (myRole === 'viewer' && !sessionBroadcasterId);
         if (isPresenter) {
             broadcasterCard.hidden = false;
             viewerCard.hidden = true;
@@ -422,6 +425,11 @@
 
         socket.on('session:state', (state) => {
             if (!state) return;
+            const previousBroadcaster = sessionBroadcasterId;
+            sessionBroadcasterId = state.broadcasterId || null;
+            if (myRole === 'viewer' && Boolean(previousBroadcaster) !== Boolean(sessionBroadcasterId)) {
+                setupBroadcastUI();
+            }
             viewerCountNum = state.students ? state.students.filter(s => s.role === 'viewer' && !s.parentId).length : 0;
             setText(viewerCount, 'mesh.viewers', { n: viewerCountNum });
             setText(viewerCountDisplay, 'mesh.viewers', { n: viewerCountNum });
@@ -595,40 +603,18 @@
         }
     }
 
-    function setupRelayUI(isHostOrBroadcaster) {
-        if (isHostOrBroadcaster) {
-            relayControl.hidden = false;
-            if (!relayButtonsBound.has(btnToggleRelay)) {
-                relayButtonsBound.add(btnToggleRelay);
-                btnToggleRelay.addEventListener('click', () => {
-                    isRelay = !isRelay;
-                    setText(relayStatus, isRelay ? 'mesh.relayOn' : 'mesh.relayOff');
-                    setText(btnToggleRelay, isRelay ? 'mesh.stopRelay' : 'mesh.beRelay');
-                    if (socket && socket.connected) {
-                        socket.emit(isRelay ? 'mesh:attach-child' : 'mesh:detach-child', {
-                            parentId: myStudentId,
-                            childId: myStudentId
-                        });
-                    }
-                });
-            }
-        } else {
-            viewerRelayControl.hidden = false;
-            if (!relayButtonsBound.has(btnViewerRelay)) {
-                relayButtonsBound.add(btnViewerRelay);
-                btnViewerRelay.addEventListener('click', () => {
-                    isRelay = !isRelay;
-                    setText(viewerRelayStatus, isRelay ? 'mesh.relayOn' : 'mesh.relayOff');
-                    setText(btnViewerRelay, isRelay ? 'mesh.stopRelay' : 'mesh.beRelay');
-                });
-            }
-        }
+    function setupRelayUI() {
+        // The relay negotiation is not implemented end-to-end; do not offer a
+        // control that would fail. Viewers still watch through the host.
+        relayControl.hidden = true;
+        viewerRelayControl.hidden = true;
     }
 
     // ---------- Broadcaster: start sharing ----------
     btnStartBroadcast.addEventListener('click', async () => {
         if (!socket || !socket.connected) return;
-        if (myRole !== 'host' && myRole !== 'broadcaster') return;
+        if (myRole === 'host') return;
+        if (myRole === 'viewer' && sessionBroadcasterId) return;
 
         try {
             setText(btnStartBroadcast, 'recv.generating');
@@ -712,8 +698,20 @@
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
             socket.emit('student:offer', { studentId: myStudentId, offer });
+            // UDP can be blocked without ever producing a "failed" state. If no
+            // direct path is up shortly, start the WebSocket fallback.
+            const fallbackTimer = setTimeout(() => {
+                if (outPC === pc && pc.connectionState !== 'connected') {
+                    switchToWebSocket();
+                    if (socket && socket.connected) socket.emit('student:transport', { mode: 'ws' });
+                }
+            }, DIRECT_TIMEOUT_MS);
             pc.onconnectionstatechange = () => {
-                if (pc.connectionState === 'failed') switchToWebSocket();
+                if (pc.connectionState === 'connected') clearTimeout(fallbackTimer);
+                if (pc.connectionState === 'failed') {
+                    clearTimeout(fallbackTimer);
+                    switchToWebSocket();
+                }
             };
         } catch (err) {
             console.error('outgoing offer', err);

@@ -6,13 +6,13 @@ const { createTunnel, parseEnv } = require('../src/network/tunnel');
 // A stand-in for the cloudflared program: prints what the real one prints.
 function fakeSpawn(lines, { exitAfterMs = null } = {}) {
     const calls = [];
-    const spawnFn = (binary, args) => {
+    const spawnFn = (binary, args, options) => {
         const child = new EventEmitter();
         child.stdout = new EventEmitter();
         child.stderr = new EventEmitter();
         child.killed = false;
         child.kill = () => { child.killed = true; child.emit('exit', null); };
-        calls.push({ binary, args, child });
+        calls.push({ binary, args, options, child });
         setTimeout(() => lines.forEach((line) => child.stderr.emit('data', Buffer.from(`${line}\n`))), 20);
         if (exitAfterMs !== null) setTimeout(() => child.emit('exit', 1), exitAfterMs);
         return child;
@@ -41,13 +41,15 @@ test('quick tunnel: starts cloudflared towards the local port and reads its publ
     assert.equal(tunnel.url, null);
 });
 
-test('named tunnel (institution domain): runs with the token and uses the configured address', async () => {
+test('named tunnel (institution domain): token goes through the environment, not argv', async () => {
     const fake = fakeSpawn(['INF Registered tunnel connection connIndex=0 location=fra08']);
     const tunnel = createTunnel({
         binary: 'cloudflared', localPort: 47800, token: 'eyJ-token', publicUrl: 'https://live.university.edu/', spawnFn: fake.spawnFn
     });
     assert.equal(await tunnel.start(), 'https://live.university.edu');
-    assert.deepEqual(fake.calls[0].args, ['tunnel', '--no-autoupdate', 'run', '--token', 'eyJ-token']);
+    assert.deepEqual(fake.calls[0].args, ['tunnel', '--no-autoupdate', 'run']);
+    assert.equal(fake.calls[0].args.includes('eyJ-token'), false, 'secret is not visible in the process list');
+    assert.equal(fake.calls[0].options.env.TUNNEL_TOKEN, 'eyJ-token');
     tunnel.stop();
 });
 

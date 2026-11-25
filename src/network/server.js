@@ -70,13 +70,20 @@ function safePayload(value) {
 
 function on(socket, event, handler) {
     socket.on(event, (...args) => {
-        if (args.length) args[0] = safePayload(args[0]);
-        try {
-            return handler(...args);
-        } catch (error) {
+        const callback = args.find((arg) => typeof arg === 'function');
+        // A callback-only emit (host:register) must keep its function in slot 0.
+        if (args.length && typeof args[0] !== 'function') args[0] = safePayload(args[0]);
+        const report = (error) => {
             console.error(`[lab-show] signaling event ${event} failed:`, error && error.message);
-            const callback = args.find((arg) => typeof arg === 'function');
             fail(callback, 'bad-request');
+        };
+        try {
+            const result = handler(...args);
+            // Async handlers (create/register) must not become unhandled rejections.
+            if (result && typeof result.catch === 'function') result.catch(report);
+            return result;
+        } catch (error) {
+            report(error);
         }
     });
 }
@@ -333,6 +340,13 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
         return [...(relay ? relay.iceServers : []), ...extraIceServers];
     }
 
+    // A global link that already has an HTTPS tunnel must not carry a plaintext
+    // direct address: the joiner would try it first and send its token/password
+    // over plain HTTP/WS to anyone who can observe the UPnP path.
+    function linkEndpoint(endpoint, webUrl, global) {
+        return global && typeof webUrl === 'string' && /^https:\/\//i.test(webUrl) ? '' : endpoint;
+    }
+
     // ---------- receiving session ----------
 
     function emitState() {
@@ -447,7 +461,8 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
             const relayToken = global ? generateSessionCode(12) : '';
             if (global && direct) sessionRelay = await openRelay();
             const globalUrl = buildLink({
-                kind: 'send', mode: global ? 'global' : 'local', code, endpoint, token: relayToken,
+                kind: 'send', mode: global ? 'global' : 'local', code,
+                endpoint: linkEndpoint(endpoint, webUrl, global), token: relayToken,
                 username: name, password: password || '', webUrl
             });
 
@@ -570,7 +585,14 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
         on(socket, 'student:start', () => {
             const student = store.findBySocket(socket.id);
             if (!student) return;
+            // The first device that actually starts sharing owns the presenter slot.
+            if (!store.serialize().broadcasterId) store.setBroadcaster(student.id);
             store.markSharing(student.id, true);
+            // Key control is only useful on the selected presenter, so select it.
+            const current = store.serialize();
+            if (current.broadcasterId === student.id && current.selectedStudentId !== student.id) {
+                store.select(student.id);
+            }
             emitState();
             socket.emit('preview:start', { studentId: student.id });
         });
@@ -746,7 +768,10 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
             const { endpoint, reachability, webUrl, direct } = await reachFor(global ? 'global' : 'local');
             const token = generateSessionCode(12);
             if (global && direct) roomRelay = await openRelay();
-            const link = buildLink({ kind: 'room', mode: global ? 'global' : 'local', code, endpoint, token, webUrl });
+            const link = buildLink({
+                kind: 'room', mode: global ? 'global' : 'local', code,
+                endpoint: linkEndpoint(endpoint, webUrl, global), token, webUrl
+            });
             const room = rooms.create({
                 code, title, networkMode: global ? 'global' : 'local',
                 token, link, reachability, durationMinutes, ownerName
@@ -891,7 +916,12 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
 
         on(socket, 'disconnect', () => {
             traffic.delete(socket.id);
-            if (socket.id === hostSocketId) hostSocketId = null;
+            if (socket.id === hostSocketId) {
+                hostSocketId = null;
+                // A session whose host is gone cannot be joined or managed: end it
+                // instead of leaving a live code/token with nobody watching it.
+                if (store.session) endSession('host-left', 'انقطع اتصال المضيف؛ انتهت الجلسة.');
+            }
             if (socket.id === roomOwnerSocketId) {
                 endRoom('owner-left');
                 roomOwnerSocketId = null;

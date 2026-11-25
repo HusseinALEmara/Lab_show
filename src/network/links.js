@@ -85,6 +85,12 @@
         const targets = [];
         if (parsed && parsed.host && parsed.port) targets.push(`http://${parsed.host}:${parsed.port}`);
         if (parsed && parsed.webUrl && !targets.includes(parsed.webUrl)) targets.push(parsed.webUrl);
+        // A global join must never hand its token/password to a plaintext
+        // endpoint when an HTTPS tunnel is available in the link.
+        if (parsed && parsed.mode === 'global') {
+            const secure = targets.filter((url) => /^(https|wss):\/\//i.test(url));
+            if (secure.length) return secure;
+        }
         return targets;
     }
 

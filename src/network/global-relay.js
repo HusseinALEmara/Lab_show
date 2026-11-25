@@ -115,7 +115,6 @@ function createGlobalRelay({ port = DEFAULT_RELAY_PORT } = {}) {
             }
             reply(true, {
                 endpoint: session.endpoint,
-                token: session.token,
                 expiresAt: session.expiresAt
             });
         });

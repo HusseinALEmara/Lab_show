@@ -48,8 +48,10 @@ function createTunnel({
     let starting = null;
 
     function args() {
+        // Never put the secret on the command line: other local processes can
+        // read argv. cloudflared accepts TUNNEL_TOKEN from the environment.
         return named
-            ? ['tunnel', '--no-autoupdate', 'run', '--token', token]
+            ? ['tunnel', '--no-autoupdate', 'run']
             : ['tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${localPort}`];
     }
 
@@ -74,7 +76,10 @@ function createTunnel({
             };
             const timer = setTimeout(() => finish(new Error('tunnel did not start in time')), startTimeoutMs);
             try {
-                child = spawnFn(binary, args(), { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], cwd });
+                child = spawnFn(binary, args(), {
+                    windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], cwd,
+                    env: named ? { ...process.env, TUNNEL_TOKEN: token } : undefined
+                });
             } catch (error) {
                 finish(error);
                 return;

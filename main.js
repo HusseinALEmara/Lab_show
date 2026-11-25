@@ -139,10 +139,12 @@ function startBackend() {
         });
         backend = child;
         let ready = false;
+        let readyAt = 0;
         child.on('message', (message) => {
             if (!message || typeof message !== 'object') return;
             if (message.type === 'ready') {
                 ready = true;
+                readyAt = Date.now();
                 backendPort = message.info.port;
                 resolve(message.info);
             } else if (message.type === 'reply' || (message.type === 'error' && message.id)) {
@@ -165,6 +167,9 @@ function startBackend() {
             }
             if (!ready) reject(new Error(`back end exited (${code})`));
             else if (!isQuitting && backendRestarts < 20) {
+                // A long healthy run earns fresh restart attempts; a rapid crash
+                // loop still stops after 20 tries.
+                if (readyAt && Date.now() - readyAt > 60_000) backendRestarts = 0;
                 backendRestarts += 1;
                 setTimeout(() => startBackend().catch((error) => console.error('back end', error)), 1000);
             }
@@ -469,6 +474,9 @@ if (!gotLock) {
 
 app.on('before-quit', () => {
     isQuitting = true;
+    // Force-kills by the installer cannot run this; startup repair is still needed
+    // for that case, but a normal quit must never leave notifications disabled.
+    notificationGuard.restore().catch(() => {});
     if (tray) {
         tray.destroy();
         tray = null;

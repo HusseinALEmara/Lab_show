@@ -33,7 +33,7 @@ test('the relay accepts the 12-character codes the app generates, and finds them
     const found = await ask(student, 'relay:find', { code: code.toLowerCase(), username: 'teacher_1' });
     assert.equal(found.ok, true);
     assert.equal(found.endpoint, '192.168.1.10:50000');
-    assert.equal(found.token, registered.token);
+    assert.equal(found.token, undefined, 'a finder must not receive the owner token');
 
     assert.equal((await ask(student, 'relay:find', { code, username: 'someone' })).ok, false);
 }));

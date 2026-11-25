@@ -116,8 +116,9 @@ function createSessionStore({ now = Date.now } = {}) {
         const existing = findBySocket(socketId);
         if (existing) return { ok: true, student: existing };
 
-        // Enforce max direct viewers for the host.
-        const role = session.broadcasterId ? 'viewer' : 'broadcaster';
+        // Everyone joins as a viewer. The presenter is promoted only when they
+        // actually start sharing, so an early viewer cannot block the real source.
+        const role = 'viewer';
         {
             const directViewers = Array.from(session.students.values()).filter(
                 (s) => s.role === 'viewer' && !s.parentId
@@ -142,10 +143,6 @@ function createSessionStore({ now = Date.now } = {}) {
             rateCount: 0
         };
         session.students.set(id, student);
-
-        if (role === 'broadcaster') {
-            session.broadcasterId = id;
-        }
 
         return { ok: true, student };
     }
@@ -263,7 +260,7 @@ function createSessionStore({ now = Date.now } = {}) {
         if (!parent || !child) return false;
         parent.children.delete(childId);
         if (child.parentId === parentId) child.parentId = null;
-        if (child.role === 'relay' && parent.children.size === 0) child.role = 'viewer';
+        if (child.role === 'relay' && !child.parentId) child.role = 'viewer';
         return true;
     }
 

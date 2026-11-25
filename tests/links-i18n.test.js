@@ -37,7 +37,7 @@ test('links: the broadcast password survives a round trip in the p parameter', (
     assert.equal(parseLink(link.replace('&p=abc-123_XY', '&p=bad!')), null, 'invalid passwords are refused');
 });
 
-test('links: with a tunnel the link is the device\'s https address, and the direct one is tried first', () => {
+test('links: global joins use only HTTPS when a tunnel is available', () => {
     const code = generateSessionCode();
     const token = generateSessionCode(12);
     const link = buildLink({
@@ -47,7 +47,8 @@ test('links: with a tunnel the link is the device\'s https address, and the dire
     assert.ok(link.startsWith('https://brave-blue-river.trycloudflare.com/j?'), link);
     const parsed = parseLink(link);
     assert.equal(parsed.webUrl, 'https://brave-blue-river.trycloudflare.com');
-    assert.deepEqual(connectTargets(parsed), ['http://203.0.113.7:51234', 'https://brave-blue-river.trycloudflare.com']);
+    assert.deepEqual(connectTargets(parsed), ['https://brave-blue-river.trycloudflare.com'],
+        'a plaintext address must not receive the global token/password');
     // A tunnel-only link (no direct address) still works.
     const tunnelOnly = parseLink(`https://live.university.edu/j?k=r&m=g&c=${code}&t=${token}`);
     assert.deepEqual(connectTargets(tunnelOnly), ['https://live.university.edu']);

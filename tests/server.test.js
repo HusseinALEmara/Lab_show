@@ -605,6 +605,8 @@ test('global code with a tunnel: the link is the device\'s https address and ope
         const { session } = await teacherWithSession(ctx, { networkMode: 'global' });
         assert.ok(session.globalUrl.startsWith('https://quiet-sun.trycloudflare.com/j?'), session.globalUrl);
         assert.equal(session.reachability, 'tunnel');
+        assert.equal(new URL(session.globalUrl).searchParams.has('e'), false,
+            'the plaintext endpoint must not travel with an HTTPS global link');
         // The same page the tunnel serves, asked from this node directly.
         const path = new URL(session.globalUrl).pathname + new URL(session.globalUrl).search;
         const response = await fetch(`http://127.0.0.1:${ctx.info.port}${path}`);
@@ -740,7 +742,7 @@ test('malformed signaling payloads are refused without killing the node', async 
     }
 });
 
-test('the presenter role is server-assigned and relay changes need membership', async () => {
+test('the presenter is promoted on first share and relay changes need membership', async () => {
     const ctx = await startNode({ udpPort: 0 });
     try {
         const { session } = await teacherWithSession(ctx);
@@ -748,15 +750,22 @@ test('the presenter role is server-assigned and relay changes need membership', 
         const second = await ctx.open();
         const outsider = await ctx.open();
         const a = await ask(first, 'student:join', {
-            code: session.code, title: 'presenter', role: 'broadcaster', protocolVersion: 4
+            code: session.code, title: 'first', role: 'broadcaster', protocolVersion: 4
         });
         const b = await ask(second, 'student:join', {
-            code: session.code, title: 'watcher', role: 'broadcaster', protocolVersion: 4
+            code: session.code, title: 'second', role: 'broadcaster', protocolVersion: 4
         });
         assert.equal(a.ok, true);
-        assert.equal(a.role, 'broadcaster', 'first joiner presents');
+        assert.equal(a.role, 'viewer', 'joining alone never grants the presenter role');
         assert.equal(b.ok, true);
         assert.equal(b.role, 'viewer', 'a client cannot claim the presenter role');
+
+        // Starting a share promotes the first active sender.
+        first.emit('student:start');
+        const third = await ctx.open();
+        const c = await ask(third, 'student:join', { code: session.code, title: 'third' });
+        assert.equal(c.broadcasterId, a.studentId, 'first sharer becomes presenter');
+
         const tamper = await ask(outsider, 'mesh:attach-child', { parentId: a.studentId, childId: b.studentId });
         assert.equal(tamper.ok, false);
         assert.equal(tamper.error, 'not-in-session');
