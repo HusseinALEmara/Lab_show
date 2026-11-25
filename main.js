@@ -497,7 +497,10 @@ app.whenReady().then(async () => {
     session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
         try {
             const arabic = String(app.getLocale() || '').toLowerCase().startsWith('ar');
-            const answer = await dialog.showMessageBox({
+            // Parent the dialog to the app window, otherwise Windows can place it
+            // behind the app and the UI looks frozen while it waits for consent.
+            const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+            const answer = await dialog.showMessageBox(parent, {
                 type: 'question',
                 buttons: arabic ? ['بدء مشاركة الشاشة', 'إلغاء'] : ['Share my screen', 'Cancel'],
                 cancelId: 1,

@@ -35,7 +35,8 @@ body {
     display: flex;
     flex-direction: column;
 }
-button, input, select { font-family: inherit; }
+button, input, select { font-family: inherit; touch-action: manipulation; }
+button { user-select: none; }
 
 /* ---------- عام ---------- */
 .card {
@@ -70,11 +71,15 @@ button.small { min-height: 30px; padding: 4px 10px; font-size: 0.74rem; }
     display: block; font-size: 0.76rem; color: var(--muted); margin: 12px 0 5px;
 }
 .title-input, .code-input, select {
-    width: 100%; border-radius: 8px; border: 1px solid var(--border);
+    width: 100%; min-height: 44px; border-radius: 8px; border: 1px solid var(--border);
     background: var(--panel-2); color: var(--text);
-    padding: 8px 11px; font-size: 0.86rem; outline: none;
+    padding: 10px 12px; font-size: 0.9rem; outline: none;
 }
-.title-input:focus, .code-input:focus, select:focus { border-color: var(--teal-bright); }
+.title-input:focus, .code-input:focus, select:focus {
+    border-color: var(--teal-bright);
+    outline: 2px solid rgba(34, 174, 196, 0.35);
+    outline-offset: 1px;
+}
 .code-input {
     font-size: clamp(1.1rem, 2vw, 1.4rem); letter-spacing: 3px;
     text-align: center; direction: ltr; padding: 8px;
@@ -704,9 +709,13 @@ body > .settings-fab {
 
 /* ---------- Buttons scale with the space available ---------- */
 .btn-primary, .btn-secondary, .btn-danger, .btn-warning, .btn-ghost {
-    min-height: clamp(34px, 4.2vh, 44px);
-    padding: clamp(4px, 0.6vh, 8px) clamp(12px, 1.2vw, 20px);
+    min-height: clamp(40px, 4.4vh, 48px);
+    padding: clamp(6px, 0.8vh, 10px) clamp(12px, 1.2vw, 20px);
     font-size: clamp(0.78rem, 0.85vw + 0.2rem, 0.92rem);
+}
+.btn-primary:focus-visible, .btn-secondary:focus-visible, .btn-danger:focus-visible,
+.btn-warning:focus-visible, .btn-ghost:focus-visible, .page-tab:focus-visible {
+    outline: 2px solid var(--teal-bright); outline-offset: 2px;
 }
 .video-btn { width: clamp(32px, 2.6vw, 40px); height: clamp(32px, 2.6vw, 40px); }
 .btn-row, .split-row { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
