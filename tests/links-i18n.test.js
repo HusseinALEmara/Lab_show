@@ -131,9 +131,31 @@ test('the interface no longer names roles: no teacher or student wording is show
     }
 });
 
-test('the receive pane and the send pane are both on the main screen', () => {
+test('creation and screen-sending live on separate screens, each with three tabs', () => {
     const html = read('renderer/index.html');
-    assert.match(html, /class="pane send-pane"/);
-    assert.match(html, /class="pane receive-pane"/);
     assert.doesNotMatch(html, /roleScreen/, 'no role-choice screen any more');
+    const create = html.slice(
+        html.lastIndexOf('<section', html.indexOf('id="screenCreate"')),
+        html.indexOf('id="screenSend"')
+    );
+    const send = html.slice(
+        html.lastIndexOf('<section', html.indexOf('id="screenSend"')),
+        html.indexOf('</main>')
+    );
+    // One screen starts hidden: the main view never shows both at once.
+    assert.match(send, /id="screenSend" hidden/);
+    assert.doesNotMatch(create, /id="screenCreate" hidden/);
+    for (const [name, block] of [['create', create], ['send', send]]) {
+        assert.match(block, /role="tablist"/, `${name} screen has a tab bar`);
+        assert.equal((block.match(/role="tab"/g) || []).length, 3, `${name} screen has three tabs`);
+        for (const key of ['tab.single', 'tab.public', 'tab.multi']) {
+            assert.ok(block.includes(`data-i18n="${key}"`), `${name} screen has the ${key} tab`);
+        }
+    }
+    // Creation generates the code; the other screen sends a screen or joins by link.
+    assert.match(create, /id="generateBtn"/, 'the creation screen creates a code');
+    assert.match(create, /id="broadcasts-layout"|class="broadcasts-layout"/, 'the creation screen receives');
+    assert.match(send, /id="codeCard"/, 'the sending screen sends to one device');
+    assert.match(send, /id="joinCard"/, 'the sending screen joins by link');
+    assert.match(send, /id="publicCard"/, 'the sending screen starts the public broadcast');
 });

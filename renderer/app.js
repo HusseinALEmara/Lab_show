@@ -27,15 +27,19 @@
 
     const ids = [
         'liveStatusBar', 'liveStatusText',
+        'navCreate', 'navSend', 'screenCreate', 'screenSend',
+        'sendTabs', 'sendTabDirect', 'sendTabJoin', 'sendTabPublic', 'createTabs',
         'codeCard', 'broadcastCard', 'codeInput', 'sendLinkInput', 'joinTitleInput',
         'approveCodeBtn', 'cancelCodeBtn', 'outgoingStatus', 'studentIdentity', 'broadcastStatusPill',
         'titleDisplayBtn', 'titleDisplayText', 'titleEditor', 'broadcastTitleInput', 'titleUpdateBtn',
         'pauseBroadcastBtn', 'stopBroadcastBtn', 'studentControlToggle', 'studentControlStatus',
         'publicCard', 'pubTitleInput', 'pubNameInput', 'pubNetworkMode', 'pubDurationSelect', 'pubStartBtn', 'pubStatus',
         'codeSettingsCard', 'durationSelect', 'networkModeSelect', 'generateBtn', 'hostStatus',
+        'publicDurationSelect', 'publicNetworkMode', 'publicGenerateBtn',
+        'multiDurationSelect', 'multiNetworkMode', 'multiGenerateBtn',
         'generatedBox', 'generatedCode', 'copyCodeBtn', 'globalLinkText', 'copyGlobalLinkBtn', 'reachNote',
         'generatedTitle', 'hostTimer', 'hostStateText', 'deleteCodeBtn',
-        'joinCodeInput', 'joinLinkInput', 'joinNameInput', 'joinRoomBtn', 'joinStatus',
+        'joinLinkInput', 'joinNameInput', 'joinRoomBtn', 'joinStatus',
         'rosterCard', 'studentRoster', 'emptyRoster', 'rosterViewBtn',
         'teacherControlsCard', 'teacherControlStatus',
         'videoBox', 'remoteVideo', 'freezeCanvas', 'videoPlaceholder', 'viewerTitle',
@@ -107,6 +111,32 @@
         });
     }
 
+    // ---------- pane tabs: one set of fields at a time ----------
+    // Each pane shows one card group at a time, so no field is shown twice. A tab
+    // button names its panel through aria-controls; activating one hides the rest.
+    function activeTab(bar) {
+        const active = bar.querySelector('.pane-tab.active');
+        return active ? active.dataset.tab : null;
+    }
+
+    function activateTab(bar, name) {
+        bar.querySelectorAll('.pane-tab').forEach((button) => {
+            const active = button.dataset.tab === name;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-selected', String(active));
+            const panel = document.getElementById(button.getAttribute('aria-controls'));
+            if (panel) panel.hidden = !active;
+        });
+    }
+
+    function bindTabBar(bar) {
+        bar.addEventListener('click', (event) => {
+            const button = event.target.closest('.pane-tab');
+            if (!button || button.disabled) return;
+            activateTab(bar, button.dataset.tab);
+        });
+    }
+
     function iceServersFor(global) {
         return global && hostInfo && Array.isArray(hostInfo.iceServers) ? hostInfo.iceServers : [];
     }
@@ -125,8 +155,28 @@
         }
     }
 
+    // ---------- screens: creation and sending never share the main view ----------
+    // Two buttons in the top bar; only the chosen screen is in the document flow.
+    function showScreen(name) {
+        const create = name === 'create';
+        dom.screenCreate.hidden = !create;
+        dom.screenSend.hidden = create;
+        dom.navCreate.classList.toggle('active', create);
+        dom.navSend.classList.toggle('active', !create);
+        if (create) dom.navCreate.setAttribute('aria-current', 'page');
+        else dom.navCreate.removeAttribute('aria-current');
+        if (!create) dom.navSend.setAttribute('aria-current', 'page');
+        else dom.navSend.removeAttribute('aria-current');
+    }
+    dom.navCreate.addEventListener('click', () => showScreen('create'));
+    dom.navSend.addEventListener('click', () => showScreen('send'));
+
     bindSegmented(dom.networkModeSelect);
+    bindSegmented(dom.publicNetworkMode);
+    bindSegmented(dom.multiNetworkMode);
     bindSegmented(dom.pubNetworkMode);
+    bindTabBar(dom.createTabs);
+    bindTabBar(dom.sendTabs);
     I18n.onChange(() => {
         syncOutgoingUi();
         renderHostSession(hostSession);
@@ -143,9 +193,7 @@
     });
     dom.copyCodeBtn.addEventListener('click', () => copyText(dom.generatedCode.textContent, dom.hostStatus));
     dom.copyGlobalLinkBtn.addEventListener('click', () => copyText(dom.globalLinkText.textContent, dom.hostStatus));
-    for (const input of [dom.codeInput, dom.joinCodeInput]) {
-        input.addEventListener('input', () => { input.value = input.value.toUpperCase(); });
-    }
+    dom.codeInput.addEventListener('input', () => { dom.codeInput.value = dom.codeInput.value.toUpperCase(); });
     // Pasting a link fills in the code too.
     function fillCodeFromLink(linkInput, codeInput) {
         linkInput.addEventListener('input', () => {
@@ -154,7 +202,6 @@
         });
     }
     fillCodeFromLink(dom.sendLinkInput, dom.codeInput);
-    fillCodeFromLink(dom.joinLinkInput, dom.joinCodeInput);
 
     // ---------- outgoing (send my screen to one receiver) ----------
 
@@ -196,6 +243,12 @@
         dom.stopBroadcastBtn.disabled = !isSharingOutgoing;
         dom.approveCodeBtn.disabled = outgoingBusy || roomOwnerActive;
         dom.pubStartBtn.disabled = isSharingOutgoing || outgoingBusy;
+        // While the screen goes out, its controls must stay in view: hold the screen on
+        // the private tab and close the multi-viewer broadcast tab until sending ends.
+        dom.sendTabPublic.disabled = isSharingOutgoing || outgoingBusy;
+        if ((isSharingOutgoing || outgoingBusy) && activeTab(dom.sendTabs) === 'public') {
+            activateTab(dom.sendTabs, 'direct');
+        }
         api.setOutgoingState({ sharing: isSharingOutgoing, paused: isPausedOutgoing });
     }
 
@@ -676,8 +729,8 @@
         const parsed = Links.parseLink(dom.joinLinkInput.value);
         if (!parsed) return setStatus(dom.joinStatus, 'join.badLink', 'err');
         if (parsed.kind !== 'room') return setStatus(dom.joinStatus, 'join.notRoom', 'err');
-        const code = dom.joinCodeInput.value.trim().toUpperCase() || parsed.code;
-        if (code !== parsed.code) return setStatus(dom.joinStatus, 'send.codeMismatch', 'err');
+        // The link carries the code; there is no separate code field to mistype.
+        const code = parsed.code;
         const result = await api.openRoom({
             role: 'viewer',
             lang: I18n.lang,
@@ -1002,11 +1055,11 @@
         socket.on('connect', () => {
             socket.timeout(5000).emit('host:register', { secret: hostInfo && hostInfo.hostSecret }, (error, response) => {
                 if (error || !response || !response.ok) {
-                    dom.generateBtn.disabled = true;
+                    setGenerateEnabled(false);
                     return setStatus(dom.hostStatus, I18n.errorKey(response, 'recv.registerFailed'), 'err');
                 }
                 setStatus(dom.hostStatus, 'recv.ready', 'ok');
-                dom.generateBtn.disabled = false;
+                setGenerateEnabled(true);
             });
         });
         socket.on('disconnect', () => setStatus(dom.hostStatus, 'recv.reconnecting', 'err'));
@@ -1046,24 +1099,38 @@
         socket.on('webrtc:ice', ({ studentId, candidate }) => handleWebrtcIce(studentId, candidate).catch(console.error));
     }
 
-    dom.generateBtn.addEventListener('click', () => {
-        if (!inSocket) return setStatus(dom.hostStatus, 'recv.serviceDown', 'err');
-        dom.generateBtn.disabled = true;
-        I18n.setText(dom.generateBtn, 'recv.generating');
-        setStatus(dom.hostStatus, 'recv.generating');
-        const mode = segmentedValue(dom.networkModeSelect) === 'global' ? 'global' : 'local';
-        inSocket.timeout(15000).emit('host:create', {
-            networkMode: mode,
-            durationMinutes: Number(dom.durationSelect.value),
-            protocolVersion: window.LabShowProtocol ? window.LabShowProtocol.PROTOCOL_VERSION : undefined
-        }, (error, response) => {
-            if (error || !response || !response.ok) {
-                setStatus(dom.hostStatus, I18n.errorKey(response, 'recv.createFailed'), 'err');
-            } else {
-                setStatus(dom.hostStatus, 'recv.created', 'ok');
-            }
-            dom.generateBtn.disabled = !inSocket;
-            I18n.setText(dom.generateBtn, 'recv.generate');
+    // The three creation tabs are three presets of one session: each panel carries
+    // its own duration and network choice, and all of them create the same session.
+    const createPanels = [
+        { button: dom.generateBtn, duration: dom.durationSelect, mode: dom.networkModeSelect },
+        { button: dom.publicGenerateBtn, duration: dom.publicDurationSelect, mode: dom.publicNetworkMode },
+        { button: dom.multiGenerateBtn, duration: dom.multiDurationSelect, mode: dom.multiNetworkMode }
+    ];
+
+    function setGenerateEnabled(enabled) {
+        createPanels.forEach((panel) => { panel.button.disabled = !enabled; });
+    }
+
+    createPanels.forEach((panel) => {
+        panel.button.addEventListener('click', () => {
+            if (!inSocket) return setStatus(dom.hostStatus, 'recv.serviceDown', 'err');
+            setGenerateEnabled(false);
+            I18n.setText(panel.button, 'recv.generating');
+            setStatus(dom.hostStatus, 'recv.generating');
+            const mode = segmentedValue(panel.mode) === 'global' ? 'global' : 'local';
+            inSocket.timeout(15000).emit('host:create', {
+                networkMode: mode,
+                durationMinutes: Number(panel.duration.value),
+                protocolVersion: window.LabShowProtocol ? window.LabShowProtocol.PROTOCOL_VERSION : undefined
+            }, (error, response) => {
+                if (error || !response || !response.ok) {
+                    setStatus(dom.hostStatus, I18n.errorKey(response, 'recv.createFailed'), 'err');
+                } else {
+                    setStatus(dom.hostStatus, 'recv.created', 'ok');
+                }
+                setGenerateEnabled(Boolean(inSocket));
+                I18n.setText(panel.button, 'recv.generate');
+            });
         });
     });
 
@@ -1197,7 +1264,7 @@
         updateViewerLayout();
         updateTeacherControlUi();
         if (!hasBridge) {
-            dom.generateBtn.disabled = true;
+            setGenerateEnabled(false);
             setStatus(dom.hostStatus, 'recv.desktopOnly', 'err');
             return;
         }
@@ -1212,7 +1279,7 @@
             attachHostHandlers(inSocket);
         } catch (error) {
             console.error('boot', error);
-            dom.generateBtn.disabled = true;
+            setGenerateEnabled(false);
             setStatus(dom.hostStatus, 'recv.registerFailed', 'err');
         }
     }
