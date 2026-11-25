@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createGlobalRelay } = require('../src/global-relay');
-const { generateSessionCode, MAX_DURATION_MINUTES } = require('../src/session-fields');
+const { createGlobalRelay } = require('../src/network/global-relay');
+const { generateSessionCode, MAX_DURATION_MINUTES } = require('../src/config/session-fields');
 const { connect, ask } = require('./helpers');
 
 async function withRelay(run) {

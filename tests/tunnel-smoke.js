@@ -5,9 +5,9 @@
 // Usage: node tests/tunnel-smoke.js <path-to-cloudflared>
 const assert = require('node:assert/strict');
 const { io } = require('socket.io-client');
-const { createLocalHostNode } = require('../src/server');
-const { createTunnel } = require('../src/tunnel');
-const { parseLink, connectTargets } = require('../src/links');
+const { createLocalHostNode } = require('../src/network/server');
+const { createTunnel } = require('../src/network/tunnel');
+const { parseLink, connectTargets } = require('../src/network/links');
 
 async function main() {
     const binary = process.argv[2] || 'cloudflared';

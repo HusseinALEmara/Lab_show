@@ -5,8 +5,8 @@ const assert = require('node:assert/strict');
 const dgram = require('node:dgram');
 const http = require('node:http');
 
-const { createPortMapper, isNonPublicIPv4 } = require('../src/upnp');
-const { createNotificationGuard, KEY } = require('../src/notifications');
+const { createPortMapper, isNonPublicIPv4 } = require('../src/network/upnp');
+const { createNotificationGuard, KEY } = require('../src/security/notifications');
 
 async function fakeRouter({ externalIp = '203.0.113.9', takenPorts = [], permanentOnly = false } = {}) {
     const calls = [];

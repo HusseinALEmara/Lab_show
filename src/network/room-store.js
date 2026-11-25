@@ -1,8 +1,9 @@
+const crypto = require('node:crypto');
 const {
     normalizeCode,
     normalizeTitle,
     normalizeDurationMinutes
-} = require('./session-fields');
+} = require('../config/session-fields');
 
 // A public broadcast ("room"): one owner streams its screen to many viewers, who can
 // comment and talk. Pure state, no sockets or timers, so every rule can be tested.
@@ -12,6 +13,13 @@ const MAX_STORED_COMMENTS = 200;
 const COMMENT_RATE_LIMIT = 5;
 const COMMENT_RATE_WINDOW_MS = 10000;
 const OWNER_ID = 'owner';
+
+function constantTimeEqual(expected, provided) {
+    if (typeof expected !== 'string' || typeof provided !== 'string' || !expected) return false;
+    const a = Buffer.from(expected);
+    const b = Buffer.from(provided);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 
 function normalizeComment(value) {
     if (typeof value !== 'string') return '';
@@ -90,7 +98,7 @@ function createRoomStore({ now = Date.now } = {}) {
     function join({ code, token, name, socketId }) {
         if (!room || isExpired()) return { ok: false, error: 'no-room' };
         if (normalizeCode(code) !== room.code) return { ok: false, error: 'bad-code' };
-        if (typeof token !== 'string' || token !== room.token) return { ok: false, error: 'bad-token' };
+        if (typeof token !== 'string' || !constantTimeEqual(room.token, token)) return { ok: false, error: 'bad-token' };
         const existing = viewerBySocket(socketId);
         if (existing) return { ok: true, viewer: existing };
         if (room.viewers.size >= MAX_VIEWERS) return { ok: false, error: 'room-full' };

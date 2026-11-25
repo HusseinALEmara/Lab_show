@@ -128,7 +128,10 @@
             notifyHint.hidden = true;
         }
 
-        document.body.append(button, panel);
+        // The button lives in the top bar, next to the live status; the panel drops below it.
+        const bar = document.querySelector('.app-bar');
+        (bar || document.body).append(button);
+        document.body.append(panel);
         I18n.apply(document);
     }
 

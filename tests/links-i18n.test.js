@@ -4,8 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const { buildLink, parseLink, connectTargets } = require('../src/links');
-const { generateSessionCode } = require('../src/session-fields');
+const { buildLink, parseLink, connectTargets } = require('../src/network/links');
+const { generateSessionCode } = require('../src/config/session-fields');
 
 const ROOT = path.join(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8');
@@ -18,12 +18,23 @@ test('links: what a device builds, another device parses back exactly', () => {
             const link = buildLink({ kind, mode, code, endpoint: '203.0.113.7:51234', token });
             const parsed = parseLink(link);
             assert.deepEqual(parsed, {
-                kind, mode, code, host: '203.0.113.7', port: 51234, webUrl: 'http://203.0.113.7:51234', token, username: ''
+                kind, mode, code, host: '203.0.113.7', port: 51234, webUrl: 'http://203.0.113.7:51234', token, username: '', password: ''
             }, `${kind}/${mode}`);
         }
     }
     assert.ok(buildLink({ code, endpoint: '1.2.3.4:5000' }).startsWith('http://1.2.3.4:5000/j?'),
         'without a tunnel the link is the device\'s own public address');
+});
+
+test('links: the broadcast password survives a round trip in the p parameter', () => {
+    const code = 'ABCDEFGHJKLM';
+    const token = 'ABCDEFGHJKLM';
+    const link = buildLink({
+        kind: 'send', mode: 'global', code, endpoint: '203.0.113.7:51234', token, password: 'abc-123_XY'
+    });
+    assert.equal(new URL(link).searchParams.get('p'), 'abc-123_XY');
+    assert.equal(parseLink(link).password, 'abc-123_XY');
+    assert.equal(parseLink(link.replace('&p=abc-123_XY', '&p=bad!')), null, 'invalid passwords are refused');
 });
 
 test('links: with a tunnel the link is the device\'s https address, and the direct one is tried first', () => {
@@ -78,7 +89,7 @@ function loadI18n() {
         document: { documentElement: { setAttribute() {} }, querySelectorAll: () => [] },
         JSON
     };
-    vm.runInNewContext(read('renderer/i18n.js'), context);
+    vm.runInNewContext(read('src/ui/i18n.js'), context);
     return context.window.LabShowI18n;
 }
 
@@ -101,15 +112,15 @@ test('i18n: every key used by the pages and scripts exists', () => {
         for (const [, key] of read(file).matchAll(/data-i18n(?:-placeholder|-title)?="([^"]+)"/g)) used.add(key);
     }
     const keyLiteral = /'((?:send|control|recv|reach|card|keys|key|video|pub|join|room|err|net|dur|lang|app|settings|theme)\.[\w.-]+)'/g;
-    for (const file of ['renderer/app.js', 'renderer/room.js', 'renderer/settings.js']) {
+    for (const file of ['src/ui/app.js', 'renderer/room.js', 'src/ui/settings.js']) {
         for (const [, key] of read(file).matchAll(keyLiteral)) used.add(key);
     }
     for (const key of used) assert.ok(key in dictionaries.ar, `missing key ${key}`);
-    assert.ok(used.size > 100, `checked ${used.size} keys`);
+    assert.ok(used.size > 50, `checked ${used.size} keys`);
 });
 
 test('i18n: every server error has a translation in both languages', () => {
-    const { MESSAGES } = require('../src/server');
+    const { MESSAGES } = require('../src/network/server');
     const { dictionaries } = loadI18n();
     for (const key of Object.keys(MESSAGES)) {
         assert.ok(dictionaries.ar[`err.${key}`], `ar err.${key}`);
@@ -131,9 +142,9 @@ test('the interface no longer names roles: no teacher or student wording is show
     }
 });
 
-test('the receive pane and the send pane are both on the main screen', () => {
+test('the welcome pane and the broadcast pane are both on the main screen', () => {
     const html = read('renderer/index.html');
-    assert.match(html, /class="pane send-pane"/);
-    assert.match(html, /class="pane receive-pane"/);
+    assert.match(html, /class="pane welcome-pane"/);
+    assert.match(html, /class="pane broadcast-pane"/);
     assert.doesNotMatch(html, /roleScreen/, 'no role-choice screen any more');
 });

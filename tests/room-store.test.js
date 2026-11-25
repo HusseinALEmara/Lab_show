@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
     createRoomStore, normalizeComment, OWNER_ID, MAX_VIEWERS, MAX_COMMENT_LENGTH, COMMENT_RATE_LIMIT
-} = require('../src/room-store');
+} = require('../src/network/room-store');
 
 function room(now) {
     const store = createRoomStore(now ? { now } : {});

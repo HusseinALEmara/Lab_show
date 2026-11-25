@@ -26,221 +26,242 @@
     </header>
 
     <main class="split">
-        <!-- ===== Send ===== -->
-        <section class="pane send-pane" aria-labelledby="sendHeading">
-            <h2 id="sendHeading" data-i18n="send.heading"></h2>
-            <p class="hint" data-i18n="send.hint"></p>
+        <!-- ===== Page 1: create a broadcast link, or join one ===== -->
+        <section class="pane welcome-pane" id="welcomePane" hidden>
+            <header class="pane-intro">
+                <h2 id="welcomeHeading" data-i18n="mesh.welcomeTitle"></h2>
+                <p class="hint" data-i18n="mesh.welcomeHint"></p>
+            </header>
 
-            <div class="segmented send-modes" id="sendMode" role="group">
-                <button type="button" data-mode="local" class="active" data-i18n="send.modeLocal"></button>
-                <button type="button" data-mode="global" data-i18n="send.modeGlobal"></button>
-            </div>
-
-            <div class="card" id="codeCard">
-                <label class="field-label" for="codeInput" data-i18n="send.code"></label>
-                <input id="codeInput" class="code-input ltr" type="text" maxlength="12" autocomplete="off"
-                    data-i18n-placeholder="send.codePh" />
-                <label class="field-label" for="sendLinkInput" id="sendLinkLabel" data-i18n="send.link"></label>
-                <input id="sendLinkInput" class="title-input ltr" type="text" autocomplete="off"
-                    data-i18n-placeholder="send.linkPh" />
-                <label class="field-label" for="joinTitleInput" data-i18n="send.title"></label>
-                <input id="joinTitleInput" class="title-input" type="text" maxlength="80" autocomplete="off"
-                    data-i18n-placeholder="send.titlePh" />
-                <div class="btn-row">
-                    <button class="btn-ghost" id="cancelCodeBtn" type="button" data-i18n="send.cancel"></button>
-                    <button class="btn-primary" id="approveCodeBtn" type="button" data-i18n="send.start"></button>
-                </div>
-                <div class="status-text" id="outgoingStatus" role="status"></div>
-            </div>
-
-            <div class="card status-card" id="broadcastCard" hidden>
-                <div class="status-row">
-                    <span class="pill" id="broadcastStatusPill"></span>
-                    <span class="identity-chip ltr" id="studentIdentity"></span>
-                </div>
-                <button class="title-display" id="titleDisplayBtn" type="button">
-                    <span id="titleDisplayText">—</span>
-                    <span class="edit-hint" data-i18n="send.editHint"></span>
+            <div class="page-tabs" role="tablist">
+                <button class="page-tab active" id="tabCreate" type="button" role="tab" aria-selected="true"
+                    aria-controls="createCard">
+                    <strong data-i18n="mesh.createLink"></strong>
+                    <small data-i18n="mesh.hostTag"></small>
                 </button>
-                <div class="inline-form" id="titleEditor" hidden>
-                    <input id="broadcastTitleInput" class="title-input" type="text" maxlength="80" autocomplete="off" />
-                    <button class="btn-secondary" id="titleUpdateBtn" type="button" data-i18n="send.update"></button>
-                </div>
-                <button class="btn-warning full" id="studentControlToggle" type="button" role="switch"
-                    aria-checked="false" disabled></button>
-                <div class="split-row">
-                    <button class="btn-secondary" id="pauseBroadcastBtn" type="button" disabled></button>
-                    <button class="btn-danger" id="stopBroadcastBtn" type="button" data-i18n="send.stop"></button>
-                </div>
-                <div class="remote-status" id="studentControlStatus"></div>
+                <button class="page-tab" id="tabJoin" type="button" role="tab" aria-selected="false"
+                    aria-controls="joinCard">
+                    <strong data-i18n="mesh.joinLink"></strong>
+                    <small data-i18n="mesh.guestTag"></small>
+                </button>
             </div>
 
-            <div class="card" id="publicCard">
-                <h3 data-i18n="pub.heading"></h3>
-                <p class="hint" data-i18n="pub.hint"></p>
-                <label class="field-label" for="pubTitleInput" data-i18n="pub.title"></label>
-                <input id="pubTitleInput" class="title-input" type="text" maxlength="80" autocomplete="off"
-                    data-i18n-placeholder="pub.titlePh" />
-                <label class="field-label" for="pubNameInput" data-i18n="pub.name"></label>
-                <input id="pubNameInput" class="title-input" type="text" maxlength="80" autocomplete="off"
-                    data-i18n-placeholder="pub.namePh" />
-                <label class="field-label" data-i18n="net.label"></label>
-                <div class="segmented" id="pubNetworkMode" role="group">
-                    <button type="button" data-mode="local" class="active" data-i18n="net.local"></button>
-                    <button type="button" data-mode="global" data-i18n="net.global"></button>
+            <!-- Host: create the link others join with -->
+            <div class="card action-card" id="createCard" role="tabpanel" aria-labelledby="tabCreate">
+                <p class="hint" data-i18n="mesh.createHint"></p>
+
+                <div class="field">
+                    <label class="field-label" for="meshTitle" data-i18n="send.title"></label>
+                    <input id="meshTitle" class="title-input" type="text" maxlength="80"
+                        data-i18n-placeholder="send.titlePh" />
                 </div>
-                <label class="field-label" for="pubDurationSelect" data-i18n="recv.duration"></label>
-                <select id="pubDurationSelect">
-                    <option value="60" data-i18n="dur.60"></option>
-                    <option value="180" selected data-i18n="dur.180"></option>
-                    <option value="480" data-i18n="dur.480"></option>
-                </select>
-                <button class="btn-primary full" id="pubStartBtn" type="button" data-i18n="pub.start"></button>
-                <div class="status-text" id="pubStatus" role="status"></div>
-            </div>
-        </section>
 
-        <!-- ===== Receive ===== -->
-        <section class="pane receive-pane" aria-labelledby="recvHeading">
-            <h2 id="recvHeading" data-i18n="recv.heading"></h2>
-            <p class="hint" data-i18n="recv.hint"></p>
+                <div class="form-row">
+                    <div class="field">
+                        <label class="field-label" for="meshPassword" data-i18n="mesh.password"></label>
+                        <input id="meshPassword" class="title-input ltr" type="text" maxlength="32" autocomplete="off"
+                            data-i18n-placeholder="mesh.passwordPh" />
+                    </div>
+                    <div class="field">
+                        <label class="field-label" for="meshMaxViewers" data-i18n="mesh.maxViewers"></label>
+                        <select id="meshMaxViewers">
+                            <option value="5">5</option>
+                            <option value="10">10</option>
+                            <option value="15">15</option>
+                            <option value="20" selected>20</option>
+                        </select>
+                    </div>
+                </div>
 
-            <div class="segmented receive-tabs" id="linkTabs" role="tablist">
-                <button type="button" data-page="local" class="active" data-i18n="link.local"></button>
-                <button type="button" data-page="global" data-i18n="link.global"></button>
-            </div>
+                <div class="field">
+                    <span class="field-label" data-i18n="mesh.networkMode"></span>
+                    <div class="segmented" id="meshNetworkMode" role="group">
+                        <button type="button" data-mode="local" class="active" data-i18n="mesh.modeLocal"></button>
+                        <button type="button" data-mode="global" data-i18n="mesh.modeGlobal"></button>
+                    </div>
+                </div>
 
-            <div class="receive-top">
-                <div class="card" id="codeSettingsCard">
-                    <label class="field-label" for="durationSelect" data-i18n="recv.duration"></label>
-                    <select id="durationSelect">
+                <div class="field">
+                    <label class="field-label" for="meshDuration" data-i18n="mesh.duration"></label>
+                    <select id="meshDuration">
                         <option value="20" data-i18n="dur.20"></option>
                         <option value="60" data-i18n="dur.60"></option>
                         <option value="180" selected data-i18n="dur.180"></option>
                         <option value="480" data-i18n="dur.480"></option>
                     </select>
-                    <label class="field-label" data-i18n="net.label"></label>
-                    <div class="segmented" id="networkModeSelect" role="group">
-                        <button type="button" data-mode="local" class="active" data-i18n="net.local"></button>
-                        <button type="button" data-mode="global" data-i18n="net.global"></button>
-                    </div>
-                    <button class="btn-primary full" id="generateBtn" type="button" disabled
-                        data-i18n="recv.generate"></button>
-                    <div class="status-text" id="hostStatus" role="status"></div>
                 </div>
 
-                <div class="card" id="generatedBox" hidden>
-                    <div class="share-row">
-                        <span class="field-label" data-i18n="recv.code"></span>
-                        <div class="generated-code ltr" id="generatedCode">------</div>
-                        <button class="btn-secondary small" id="copyCodeBtn" type="button" data-i18n="recv.copy"></button>
-                    </div>
-                    <div class="share-row">
+                <button class="btn-primary full" id="meshCreateBtn" type="button" data-i18n="mesh.create"></button>
+                <button class="btn-ghost full" id="btnOpenRoom" type="button" data-i18n="mesh.openRoom"></button>
+                <div class="status-text" id="meshCreateStatus" role="status"></div>
+
+                <div class="link-box" id="meshLinkBox" hidden>
+                    <div class="link-header">
                         <span class="field-label" data-i18n="recv.link"></span>
-                        <code class="link-text ltr" id="globalLinkText"></code>
-                        <button class="btn-secondary small" id="copyGlobalLinkBtn" type="button" data-i18n="recv.copy"></button>
+                        <button class="btn-ghost small" id="meshCancelLinkBtn" type="button"
+                            data-i18n="mesh.cancelLink"></button>
                     </div>
-                    <div class="reach-note" id="reachNote" hidden></div>
-                    <div class="meta-row">
-                        <span id="generatedTitle"></span>
-                        <span id="hostTimer"></span>
-                        <span id="hostStateText"></span>
+                    <div class="link-row">
+                        <code class="link-text ltr" id="meshLinkText"></code>
+                        <button class="btn-secondary small" id="meshCopyLinkBtn" type="button"
+                            data-i18n="recv.copy"></button>
                     </div>
-                    <button class="btn-danger full" id="deleteCodeBtn" type="button" data-i18n="recv.end"></button>
+                    <div class="reach-note" id="meshReachNote" hidden></div>
                 </div>
 
-                <div class="card" id="joinCard">
-                    <h3 data-i18n="join.heading"></h3>
-                    <label class="field-label" for="joinCodeInput" data-i18n="join.code"></label>
-                    <input id="joinCodeInput" class="code-input ltr" type="text" maxlength="12" autocomplete="off"
-                        data-i18n-placeholder="send.codePh" />
-                    <label class="field-label" for="joinLinkInput" data-i18n="join.link"></label>
-                    <input id="joinLinkInput" class="title-input ltr" type="text" autocomplete="off"
-                        data-i18n-placeholder="join.linkPh" />
-                    <label class="field-label" for="joinNameInput" data-i18n="join.name"></label>
-                    <input id="joinNameInput" class="title-input" type="text" maxlength="80" autocomplete="off"
-                        data-i18n-placeholder="pub.namePh" />
-                    <button class="btn-secondary full" id="joinRoomBtn" type="button" data-i18n="join.button"></button>
-                    <div class="status-text" id="joinStatus" role="status"></div>
-                </div>
+                <button class="btn-secondary full" id="btnViewIncoming" type="button" hidden
+                    data-i18n="mesh.viewIncoming"></button>
             </div>
 
-            <div class="broadcasts-layout">
-                <section class="stage-column">
-                    <div class="video-box" id="videoBox">
-                        <video id="remoteVideo" autoplay playsinline muted></video>
-                        <canvas id="freezeCanvas" class="freeze-canvas"></canvas>
+            <!-- Participant: join with a received link -->
+            <div class="card action-card" id="joinCard" role="tabpanel" aria-labelledby="tabJoin" hidden>
+                <p class="hint" data-i18n="mesh.joinHint"></p>
+
+                <div class="field">
+                    <label class="field-label" for="meshJoinLink" data-i18n="join.link"></label>
+                    <input id="meshJoinLink" class="title-input ltr" type="text" autocomplete="off"
+                        data-i18n-placeholder="join.linkPh" />
+                </div>
+
+                <div class="form-row">
+                    <div class="field">
+                        <label class="field-label" for="meshJoinPassword" data-i18n="mesh.password"></label>
+                        <input id="meshJoinPassword" class="title-input ltr" type="text" maxlength="32"
+                            autocomplete="off" data-i18n-placeholder="mesh.passwordPh" />
+                    </div>
+                    <div class="field">
+                        <label class="field-label" for="meshJoinName" data-i18n="join.name"></label>
+                        <input id="meshJoinName" class="title-input" type="text" maxlength="80" autocomplete="off"
+                            data-i18n-placeholder="pub.namePh" />
+                    </div>
+                </div>
+
+                <button class="btn-primary full" id="meshJoinBtn" type="button" data-i18n="mesh.join"></button>
+                <div class="status-text" id="meshJoinStatus" role="status"></div>
+                <button class="btn-secondary full" id="btnViewLive" type="button" data-i18n="mesh.viewLive"
+                    hidden></button>
+            </div>
+
+            <!-- Live broadcast view, inline on the same page -->
+            <div class="card live-card" id="liveContainer" hidden>
+                <div class="broadcast-header">
+                    <h3 data-i18n="mesh.viewLive"></h3>
+                </div>
+                <div class="broadcast-body" id="liveBody">
+                    <div class="card viewer-card" id="inlineViewerCard" hidden>
+                        <div class="video-box">
+                            <video id="inlineRemoteVideo" autoplay playsinline></video>
+                            <div class="viewer-title" id="inlineViewerTitle"></div>
+                        </div>
+                    </div>
+                    <div class="card waiting-card" id="inlineWaitingCard" hidden>
+                        <div class="placeholder-icon" aria-hidden="true">▣</div>
+                        <p data-i18n="recv.placeholder"></p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===== Page 2: broadcast / watch ===== -->
+        <section class="pane broadcast-pane" id="broadcastPane" hidden>
+            <header class="broadcast-header">
+                <div class="broadcast-titles">
+                    <h2 id="broadcastHeading" data-i18n="mesh.broadcastTitle"></h2>
+                    <span class="broadcast-meta" id="broadcastMeta"></span>
+                </div>
+                <button class="btn-ghost" id="btnBackToWelcome" type="button"
+                    data-i18n="mesh.backToWelcome"></button>
+            </header>
+
+            <div class="broadcast-body">
+                <!-- Broadcaster view -->
+                <div class="card broadcaster-card" id="broadcasterCard" hidden>
+                    <div class="video-box">
+                        <video id="selfVideo" autoplay playsinline muted></video>
+                        <div class="self-label" id="selfLabel"></div>
+                    </div>
+                    <div class="broadcaster-controls">
+                        <button class="btn-primary full" id="btnStartBroadcast" type="button"
+                            data-i18n="mesh.startBroadcast"></button>
+                        <button class="btn-danger full" id="btnStopBroadcast" type="button"
+                            data-i18n="mesh.stopBroadcast" hidden></button>
+                        <button class="btn-ghost full" id="btnControlToggle" type="button"
+                            data-i18n="control.allow" hidden></button>
+                        <div class="status-row">
+                            <span class="pill" id="broadcastPill"></span>
+                            <span id="viewerCount" data-i18n="mesh.viewers"></span>
+                        </div>
+                        <div class="relay-control" id="relayControl" hidden>
+                            <button class="btn-secondary" id="btnToggleRelay" type="button"
+                                data-i18n="mesh.beRelay"></button>
+                            <span id="relayStatus" data-i18n="mesh.relayOff"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Viewer view -->
+                <div class="card viewer-card" id="viewerCard" hidden>
+                    <div class="video-box">
+                        <video id="remoteVideo" autoplay playsinline></video>
                         <div class="viewer-title" id="viewerTitle"></div>
                         <div class="video-controls">
-                            <button class="video-btn" id="receiverPauseBtn" type="button" data-i18n-title="video.pause">⏸</button>
-                            <button class="video-btn" id="floatBtn" type="button" data-i18n-title="video.float">
-                                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <rect x="3" y="4" width="18" height="16" rx="2" />
-                                    <rect x="12" y="12" width="7" height="6" rx="1" fill="currentColor" />
-                                </svg>
-                            </button>
-                            <button class="video-btn" id="fullscreenBtn" type="button" data-i18n-title="video.full">
-                                <svg id="expandIcon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <button class="video-btn" id="btnReceiverPause" type="button"
+                                data-i18n-title="video.pause">⏸</button>
+                            <button class="video-btn" id="btnFullscreen" type="button" data-i18n-title="video.full">
+                                <svg id="expandIcon" width="17" height="17" viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" stroke-width="2.2">
                                     <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
                                 </svg>
-                                <svg id="compressIcon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="display:none">
+                                <svg id="compressIcon" width="17" height="17" viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" stroke-width="2.2" style="display:none">
                                     <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
                                 </svg>
                             </button>
                         </div>
                     </div>
-                    <div class="video-placeholder" id="videoPlaceholder">
-                        <div class="placeholder-icon" aria-hidden="true">▣</div>
-                        <p data-i18n="recv.placeholder"></p>
+                    <div class="viewer-controls">
+                        <div class="status-row">
+                            <span class="pill" id="viewerPill"></span>
+                            <span id="viewerCountDisplay" data-i18n="mesh.viewers"></span>
+                        </div>
+                        <div class="relay-control" id="viewerRelayControl" hidden>
+                            <button class="btn-secondary" id="btnViewerRelay" type="button"
+                                data-i18n="mesh.beRelay"></button>
+                            <span id="viewerRelayStatus" data-i18n="mesh.relayOff"></span>
+                        </div>
+                        <div class="key-pad" id="keyPad" hidden>
+                            <span class="field-label" data-i18n="keys.heading"></span>
+                            <div class="remote-key-grid">
+                                <button type="button" data-key="Enter">Enter</button>
+                                <button type="button" data-key="Space">Space</button>
+                                <button type="button" data-key="Escape">Esc</button>
+                                <button type="button" data-key="ArrowUp">↑</button>
+                                <button type="button" data-key="ArrowLeft">←</button>
+                                <button type="button" data-key="ArrowDown">↓</button>
+                                <button type="button" data-key="ArrowRight">→</button>
+                            </div>
+                        </div>
                     </div>
-                </section>
+                </div>
 
-                <aside class="roster-column">
-                    <div class="card roster-card" id="rosterCard">
-                        <div class="roster-heading">
-                            <h3 data-i18n="recv.list"></h3>
-                            <button class="btn-ghost small" id="rosterViewBtn" type="button" data-i18n="recv.gridView"></button>
-                        </div>
-                        <div class="student-roster" id="studentRoster"></div>
-                        <div class="status-text" id="emptyRoster" data-i18n="recv.empty"></div>
-                    </div>
-
-                    <div class="card" id="teacherControlsCard" hidden>
-                        <h3 data-i18n="keys.heading"></h3>
-                        <p class="hint" data-i18n="keys.hint"></p>
-                        <div class="remote-status" id="teacherControlStatus"></div>
-                        <div class="direction-pad">
-                            <button class="key-up" data-remote-key="ArrowUp" type="button" aria-label="↑">↑</button>
-                            <span aria-hidden="true"></span>
-                            <span aria-hidden="true"></span>
-                            <button data-remote-key="ArrowLeft" type="button" aria-label="←">←</button>
-                            <button data-remote-key="ArrowDown" type="button" aria-label="↓">↓</button>
-                            <button data-remote-key="ArrowRight" type="button" aria-label="→">→</button>
-                        </div>
-                        <div class="remote-key-grid">
-                            <button data-remote-key="Enter" type="button" data-i18n="key.Enter"></button>
-                            <button data-remote-key="Space" type="button" data-i18n="key.Space"></button>
-                            <button data-remote-key="Escape" type="button" data-i18n="key.Escape"></button>
-                            <button data-remote-key="Tab" type="button" data-i18n="key.Tab"></button>
-                            <button data-remote-key="PageUp" type="button" data-i18n="key.PageUp"></button>
-                            <button data-remote-key="PageDown" type="button" data-i18n="key.PageDown"></button>
-                            <button data-remote-key="Home" type="button" data-i18n="key.Home"></button>
-                            <button data-remote-key="End" type="button" data-i18n="key.End"></button>
-                        </div>
-                    </div>
-                </aside>
+                <!-- Waiting / role not set -->
+                <div class="card waiting-card" id="waitingCard">
+                    <div class="placeholder-icon" aria-hidden="true">▣</div>
+                    <p id="waitingText" data-i18n="recv.placeholder"></p>
+                </div>
             </div>
         </section>
     </main>
 
     <script src="../node_modules/socket.io-client/dist/socket.io.min.js"></script>
-    <script src="../src/adaptive-quality.js"></script>
-    <script src="../src/protocol.js"></script>
-    <script src="../src/links.js"></script>
-    <script src="i18n.js"></script>
-    <script src="settings.js"></script>
-    <script src="ws-media.js"></script>
-    <script src="app.js"></script>
+    <script src="../src/media/adaptive-quality.js"></script>
+    <script src="../src/config/protocol.js"></script>
+    <script src="../src/network/links.js"></script>
+    <script src="../src/ui/i18n.js"></script>
+    <script src="../src/ui/screen-adapter.js"></script>
+    <script src="../src/ui/settings.js"></script>
+    <script src="../src/media/ws-media.js"></script>
+    <script src="../src/ui/app.js"></script>
 </body>
 
 </html>

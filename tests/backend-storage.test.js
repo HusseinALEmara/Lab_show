@@ -5,11 +5,11 @@ const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
 const { fork } = require('node:child_process');
-const { chooseDataRoot, dataPaths, migrateFrom } = require('../src/app-storage');
+const { chooseDataRoot, dataPaths, migrateFrom } = require('../src/config/app-storage');
 const { connect, ask } = require('./helpers');
 
 function startBackendProcess(config) {
-    const child = fork(path.join(__dirname, '..', 'src', 'backend.js'), [], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
+    const child = fork(path.join(__dirname, '..', 'src', 'network', 'backend.js'), [], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
     const messages = [];
     const waiters = [];
     child.on('message', (message) => {

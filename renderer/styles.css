@@ -13,11 +13,13 @@
     --muted: #90a3a3;
     --err: #f87171;
     --warn: #fbbf24;
-    --radius: 12px;
+    --radius: 14px;
     --gap: clamp(10px, 1.4vw, 18px);
     --pad: clamp(12px, 1.6vw, 20px);
     --btn-font: clamp(0.78rem, 0.9vw, 0.86rem);
     --btn-height: clamp(34px, 3.3vh, 40px);
+    /* Height of the top bar; every page sizes itself against it. */
+    --bar-h: 56px;
 }
 
 [hidden] { display: none !important; }
@@ -28,8 +30,10 @@ body {
     background: var(--bg);
     color: var(--text);
     font-family: system-ui, "Segoe UI", Tahoma, sans-serif;
-    font-size: 14px;
+    font-size: 15px;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 button, input, select { font-family: inherit; }
 
@@ -97,6 +101,7 @@ button.small { min-height: 30px; padding: 4px 10px; font-size: 0.74rem; }
     background: rgba(34, 174, 196, 0.14); color: var(--teal-bright);
     font-size: 0.7rem; font-weight: 800;
 }
+.pill:empty { display: none; }
 .icon-btn {
     width: 34px; height: 34px; flex: 0 0 34px; display: grid; place-items: center;
     border-radius: 9px; border: 1px solid var(--border);
@@ -223,10 +228,10 @@ button.small { min-height: 30px; padding: 4px 10px; font-size: 0.74rem; }
 /* عارض بنمط يوتيوب */
 .video-box {
     display: none; width: 100%; aspect-ratio: 16 / 9;
-    max-height: min(60vh, 600px); position: relative;
+    max-height: min(70vh, 760px); position: relative;
     align-items: center; justify-content: center;
     background: #000; border: 1px solid var(--border);
-    border-radius: var(--radius); overflow: hidden;
+    border-radius: 12px; overflow: hidden;
 }
 body.viewer-active .video-box { display: flex; }
 .video-box video, .video-box canvas.freeze-canvas { width: 100%; height: 100%; object-fit: contain; }
@@ -428,53 +433,66 @@ body.viewer-active .video-placeholder { display: none; }
     .tile-preview { width: 92px; }
 }
 
-/* ---------- Split main screen (send | receive) ---------- */
+/* ---------- Desktop shell: top bar + one page that fills the window ---------- */
 .app-bar {
-    display: flex; align-items: center; gap: 12px; padding: 8px clamp(10px, 1.5vw, 18px);
-    border-bottom: 1px solid var(--border); background: var(--bg-2);
+    flex: 0 0 var(--bar-h);
+    height: var(--bar-h);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0 clamp(16px, 2vw, 28px);
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, var(--bg-2), var(--bg));
 }
-.brand { display: flex; align-items: center; gap: 10px; margin-inline-end: auto; min-width: 0; }
-.brand div { display: flex; flex-direction: column; min-width: 0; }
-.brand strong { font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.brand small { font-size: 0.7rem; color: var(--muted); }
-.brand-mark.small { width: 30px; height: 30px; margin: 0; }
-.app-bar .live-status-bar { position: static; transform: none; box-shadow: none; padding: 5px 12px; }
+.brand { display: flex; align-items: center; gap: 11px; margin-inline-end: auto; min-width: 0; }
+.brand div { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.brand strong { font-size: 1rem; letter-spacing: 0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brand small { font-size: 0.74rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brand-mark.small { width: 32px; height: 32px; margin: 0; }
+.app-bar .live-status-bar { position: static; transform: none; box-shadow: none; padding: 6px 14px; }
+
 .split {
-    height: calc(100vh - 52px); display: grid;
-    grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
-    gap: var(--gap); padding: var(--gap); overflow: hidden;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: clamp(18px, 2.2vw, 34px) clamp(18px, 2.4vw, 40px) clamp(26px, 3vw, 46px);
 }
-.pane { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap); padding-bottom: 12px; }
-.pane h2 { margin: 0; font-size: 1.02rem; }
-.pane h3 { margin: 0 0 4px; font-size: 0.9rem; }
-.pane > .hint { margin: -6px 0 0; }
-.send-pane { border-inline-end: 1px solid var(--border); padding-inline-end: var(--gap); }
-.receive-top { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--gap); }
-.receive-pane .broadcasts-layout { height: auto; min-height: 320px; }
+.pane {
+    width: 100%;
+    max-width: 1240px;
+    margin-inline: auto;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(16px, 1.8vw, 26px);
+}
+.pane h2 { margin: 0; font-size: clamp(1.25rem, 0.9vw + 1rem, 1.7rem); letter-spacing: -0.01em; }
+.pane h3 { margin: 0; font-size: 1rem; }
 .share-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; margin-bottom: 8px; }
 .share-row .field-label { margin: 0; }
 .link-text {
-    color: var(--teal-bright); font-size: 0.7rem; word-break: break-all;
-    background: var(--panel-2); border: 1px dashed var(--border); border-radius: 7px; padding: 6px 8px;
+    color: var(--teal-bright); font-size: 0.78rem; word-break: break-all; line-height: 1.5;
+    background: var(--panel-2); border: 1px dashed var(--border); border-radius: 8px; padding: 9px 11px;
 }
 .generated-code { font-size: clamp(1.1rem, 2vw, 1.5rem); letter-spacing: 3px; }
-.reach-note { font-size: 0.74rem; line-height: 1.6; padding: 7px 9px; border-radius: 8px; margin: 4px 0 8px; }
+.reach-note { font-size: 0.8rem; line-height: 1.65; padding: 9px 12px; border-radius: 9px; margin: 10px 0 0; }
 .reach-note.ok { background: rgba(116, 136, 58, 0.18); color: var(--olive-bright); }
 .reach-note.warn { background: rgba(251, 191, 36, 0.12); color: var(--warn); }
 [dir="ltr"] .title-display, [dir="ltr"] .role-option { text-align: left; }
-[dir="ltr"] .viewer-title { right: auto; left: 10px; }
-[dir="ltr"] .video-controls { left: auto; right: 10px; }
+[dir="ltr"] .viewer-title { right: auto; left: 12px; }
+[dir="ltr"] .video-controls { left: auto; right: 12px; }
 
 /* ---------- Public broadcast room ---------- */
 .room-page { overflow: hidden; }
 .room-layout {
-    height: calc(100vh - 52px); display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
-    gap: var(--gap); padding: var(--gap);
+    flex: 1 1 auto; min-height: 0; display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+    gap: clamp(16px, 1.6vw, 24px);
+    padding: clamp(16px, 2vw, 28px);
+    overflow: hidden;
 }
-.room-main, .room-side { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap); }
+.room-main, .room-side { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: clamp(12px, 1.2vw, 18px); }
 .room-video {
-    position: relative; width: 100%; aspect-ratio: 16 / 9; max-height: 62vh;
+    position: relative; width: 100%; aspect-ratio: 16 / 9; max-height: 68vh;
     background: #000; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
 }
 .room-video video { width: 100%; height: 100%; object-fit: contain; display: block; }
@@ -503,11 +521,8 @@ body.viewer-active .video-placeholder { display: none; }
 .mic-dot.on { color: var(--olive-bright); }
 
 @media (max-width: 980px) {
-    .split { grid-template-columns: 1fr; height: auto; min-height: calc(100vh - 52px); overflow: visible; }
-    body { overflow: auto; }
-    .send-pane { border: none; padding: 0; }
-    .room-layout { grid-template-columns: 1fr; height: auto; }
-    .room-page { overflow: auto; }
+    .room-layout { grid-template-columns: 1fr; overflow-y: auto; }
+    .room-main, .room-side { overflow: visible; }
 }
 
 /* ---------- Day theme (night is the default palette above) ---------- */
@@ -546,43 +561,168 @@ body.viewer-active .video-placeholder { display: none; }
 .direction-pad button, .remote-key-grid button { background: var(--key-bg); }
 .live-status-bar { background: var(--overlay); }
 
-/* ---------- Settings button: a corner, kept off the edges by a share of the window ---------- */
+/* ---------- Settings: a toolbar button in the top bar, its panel drops below ---------- */
 .settings-fab {
-    position: fixed; z-index: 200;
-    inset-block-end: clamp(12px, 3.5vh, 36px);
-    inset-inline-start: clamp(12px, 2.5vw, 36px);
-    width: clamp(40px, 3.6vw, 54px); height: clamp(40px, 3.6vw, 54px);
-    display: grid; place-items: center; border-radius: 50%;
-    border: 1px solid var(--border); background: var(--panel); color: var(--text);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28); cursor: pointer; transition: transform 0.15s;
+    flex: 0 0 auto; width: 36px; height: 36px;
+    display: grid; place-items: center;
+    border-radius: 10px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--text); cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
-.settings-fab:hover { transform: rotate(30deg); border-color: var(--teal-bright); }
-.settings-fab svg { width: 55%; height: 55%; }
+.settings-fab:hover { border-color: var(--teal-bright); color: var(--teal-bright); background: var(--panel-2); }
+.settings-fab svg { width: 19px; height: 19px; }
+/* Fallback for a window without a top bar: keep it reachable in a corner. */
+body > .settings-fab {
+    position: fixed; z-index: 200;
+    inset-block-end: 18px; inset-inline-start: 18px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
 .settings-panel {
     position: fixed; z-index: 201;
-    inset-block-end: calc(clamp(12px, 3.5vh, 36px) + clamp(40px, 3.6vw, 54px) + 10px);
-    inset-inline-start: clamp(12px, 2.5vw, 36px);
-    width: min(340px, calc(100vw - 2 * clamp(12px, 2.5vw, 36px)));
-    max-height: calc(100vh - 120px); overflow-y: auto;
-    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
+    top: calc(var(--bar-h) + 8px);
+    inset-inline-end: clamp(16px, 2vw, 28px);
+    width: min(330px, calc(100vw - 32px));
+    max-height: calc(100vh - var(--bar-h) - 24px);
+    overflow-y: auto;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
 }
 .settings-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .settings-head h3 { margin: 0; font-size: 0.95rem; }
 .settings-segmented { grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); }
 .settings-toggle { display: flex; align-items: center; gap: 9px; margin-top: 14px; font-size: 0.82rem; cursor: pointer; }
 .settings-toggle input { width: 18px; height: 18px; accent-color: var(--teal); }
-/* Leave room so the floating button never covers the last controls. */
-.pane, .room-main, .room-side { padding-bottom: calc(clamp(40px, 3.6vw, 54px) + clamp(12px, 3.5vh, 36px) + 8px); }
+
+/* ---------- Desktop pages: intro, cards and forms ---------- */
+.pane-intro { display: flex; flex-direction: column; gap: 8px; max-width: 82ch; }
+.pane-intro .hint { margin: 0; font-size: clamp(0.86rem, 0.3vw + 0.8rem, 0.96rem); line-height: 1.8; }
+
+/* The two ways in are two tabs of the same page, never one split screen. */
+.welcome-pane { max-width: 1000px; }
+.page-tabs {
+    display: flex; gap: 6px; padding: 6px; width: fit-content; max-width: 100%;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 14px;
+}
+.page-tab {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+    min-height: 48px; padding: 8px 18px; text-align: start; cursor: pointer;
+    border: 1px solid transparent; border-radius: 10px;
+    background: transparent; color: var(--muted);
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.page-tab strong { font-size: 0.95rem; font-weight: 800; color: inherit; }
+.page-tab small { font-size: 0.72rem; color: var(--muted); }
+.page-tab:hover { background: rgba(34, 174, 196, 0.10); color: var(--text); }
+.page-tab.active { background: var(--panel); border-color: var(--teal); color: var(--text); }
+.page-tab.active small { color: var(--teal-bright); }
+.page-tab:focus-visible { outline: 2px solid var(--teal-bright); outline-offset: 2px; }
+
+.action-card { display: flex; flex-direction: column; padding: clamp(18px, 2vw, 26px); }
+.card-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.card-heading h3 { font-size: 1.02rem; }
+.card-heading .pill { margin-inline-start: auto; }
+.action-card > .hint { margin: 0 0 6px; max-width: 54ch; }
+
+.field { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
+.field .field-label { margin: 0; font-size: 0.79rem; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.action-card .title-input, .action-card select { padding: 10px 12px; font-size: 0.9rem; }
+.action-card > .btn-primary, .action-card > .btn-secondary { margin-top: 18px; }
+.action-card .status-text { text-align: start; margin-top: 8px; }
+
+.link-box {
+    margin-top: 16px; padding: 12px 14px; border-radius: 11px;
+    border: 1px dashed var(--border); background: var(--panel-2);
+}
+.link-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.link-header .field-label { margin: 0; }
+.link-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.link-row .link-text { flex: 1 1 auto; min-width: 0; }
+
+/* ---------- Broadcast page ---------- */
+.broadcast-header {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding-bottom: 12px; border-bottom: 1px solid var(--border); flex: 0 0 auto;
+}
+.broadcast-header h2, .broadcast-header h3 { margin: 0; font-size: clamp(1.1rem, 0.5vw + 1rem, 1.4rem); }
+.broadcast-titles { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; min-width: 0; }
+.broadcast-meta {
+    font-size: 0.78rem; color: var(--muted); background: var(--panel-2);
+    border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px;
+}
+.broadcast-meta:empty { display: none; }
+.broadcast-body { display: flex; flex-direction: column; gap: clamp(16px, 1.8vw, 24px); }
+.broadcast-pane .broadcaster-card,
+.broadcast-pane .viewer-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(250px, 320px);
+    gap: clamp(16px, 1.8vw, 26px);
+    align-items: start;
+    padding: clamp(16px, 1.6vw, 22px);
+}
+.broadcaster-controls, .viewer-controls { display: flex; flex-direction: column; gap: 12px; }
+.viewer-controls .btn-secondary { width: 100%; }
+.status-row {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    font-size: 0.84rem; color: var(--muted);
+}
+.relay-control {
+    display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+    padding-top: 12px; border-top: 1px solid var(--border);
+}
+.relay-control span { font-size: 0.76rem; color: var(--muted); line-height: 1.5; }
+.key-pad {
+    margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+}
+.key-pad .field-label { margin: 0 0 8px; }
+.key-pad .remote-key-grid { gap: 6px; }
+.key-pad .remote-key-grid button { min-height: 32px; font-size: 0.76rem; }
+.self-label {
+    position: absolute; inset-block-end: 10px; inset-inline-start: 10px; z-index: 15;
+    font-size: 0.76rem; color: #fff; background: rgba(0, 0, 0, 0.72);
+    padding: 3px 9px; border-radius: 7px;
+}
+.waiting-card {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 12px; text-align: center; padding: clamp(40px, 7vw, 90px) 24px;
+    border-style: dashed; background: var(--panel-2);
+}
+.waiting-card p { margin: 0; font-size: 0.95rem; color: var(--muted); }
+.waiting-card .placeholder-icon { font-size: 2.4rem; }
+#btnBackToWelcome { flex: 0 0 auto; }
+
+/* The video box stays hidden until a card that owns one is shown. */
+.video-box { display: none; }
+.broadcaster-card .video-box, .viewer-card .video-box { display: flex; }
+
+/* Inline live view on the first page */
+.live-card { display: flex; flex-direction: column; gap: 14px; padding: clamp(16px, 1.8vw, 24px); }
+.live-card .broadcast-body { gap: 14px; }
+.live-card .viewer-card, .live-card .waiting-card { border: none; padding: 0; background: transparent; }
+.live-card .video-box { max-height: 52vh; }
+.live-card .waiting-card { padding: 26px 16px; border: 1px dashed var(--border); border-radius: 12px; background: var(--panel-2); }
+#btnViewLive { margin-top: 12px; }
 
 /* ---------- Buttons scale with the space available ---------- */
 .btn-primary, .btn-secondary, .btn-danger, .btn-warning, .btn-ghost {
-    min-height: clamp(32px, 4.2vh, 44px);
-    padding: clamp(4px, 0.6vh, 8px) clamp(10px, 1.2vw, 18px);
-    font-size: clamp(0.74rem, 0.85vw + 0.2rem, 0.92rem);
+    min-height: clamp(34px, 4.2vh, 44px);
+    padding: clamp(4px, 0.6vh, 8px) clamp(12px, 1.2vw, 20px);
+    font-size: clamp(0.78rem, 0.85vw + 0.2rem, 0.92rem);
 }
-.video-btn { width: clamp(30px, 2.6vw, 40px); height: clamp(30px, 2.6vw, 40px); }
+.video-btn { width: clamp(32px, 2.6vw, 40px); height: clamp(32px, 2.6vw, 40px); }
 .btn-row, .split-row { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
 .share-row { grid-template-columns: auto minmax(0, 1fr) auto; }
-@media (max-width: 520px) {
+
+/* ---------- Narrower windows: one column, still readable ---------- */
+@media (max-width: 960px) {
+    .broadcast-pane .broadcaster-card,
+    .broadcast-pane .viewer-card { grid-template-columns: 1fr; }
+    .broadcast-pane .video-box { max-height: 54vh; }
+}
+@media (max-width: 620px) {
+    .form-row { grid-template-columns: 1fr; gap: 0; }
+    .link-row { flex-direction: column; align-items: stretch; }
     .share-row { grid-template-columns: 1fr; }
+    .broadcast-header { flex-wrap: wrap; }
+    .page-tabs { width: 100%; }
+    .page-tab { flex: 1 1 0; align-items: center; text-align: center; }
 }

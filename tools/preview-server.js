@@ -1,7 +1,7 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { createLocalHostNode } = require('../src/server');
+const { createLocalHostNode } = require('../src/network/server');
 
 const ROOT = path.resolve(__dirname, '..');
 const PREVIEW_PORT = 4173;

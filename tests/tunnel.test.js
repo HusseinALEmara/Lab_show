@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
-const { createTunnel, parseEnv } = require('../src/tunnel');
+const { createTunnel, parseEnv } = require('../src/network/tunnel');
 
 // A stand-in for the cloudflared program: prints what the real one prints.
 function fakeSpawn(lines, { exitAfterMs = null } = {}) {

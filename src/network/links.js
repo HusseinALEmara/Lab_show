@@ -17,6 +17,7 @@
     const LEGACY_BASE = 'https://labshow.link/j';
     const CODE_PATTERN = /^(?:\d{6}|[A-Z2-9]{12})$/;
     const TOKEN_PATTERN = /^[A-Z2-9]{12}$/;
+    const PASSWORD_PATTERN = /^[A-Za-z0-9_-]{4,32}$/;
     const ENDPOINT_PATTERN = /^([A-Za-z0-9.-]+):(\d{2,5})$/;
 
     function cleanWebUrl(value) {
@@ -30,11 +31,12 @@
         }
     }
 
-    function buildLink({ kind = 'send', mode = 'local', code, endpoint, token = '', username = '', webUrl = '' }) {
+    function buildLink({ kind = 'send', mode = 'local', code, endpoint, token = '', username = '', password = '', webUrl = '' }) {
         const params = new URLSearchParams({ k: kind === 'room' ? 'r' : 's', m: mode === 'global' ? 'g' : 'l', c: code });
         if (endpoint) params.set('e', endpoint);
         if (token) params.set('t', token);
         if (username) params.set('u', username);
+        if (password) params.set('p', password);
         const origin = cleanWebUrl(webUrl) || (endpoint ? `http://${endpoint}` : '');
         return `${origin ? `${origin}/j` : LEGACY_BASE}?${params.toString()}`;
     }
@@ -53,8 +55,10 @@
         const p = url.searchParams;
         const code = String(p.get('c') || '').trim().toUpperCase();
         const token = String(p.get('t') || '').trim().toUpperCase();
+        const password = String(p.get('p') || '').trim();
         if (!CODE_PATTERN.test(code)) return null;
         if (token && !TOKEN_PATTERN.test(token)) return null;
+        if (password && !PASSWORD_PATTERN.test(password)) return null;
 
         let host = null;
         let port = null;
@@ -72,7 +76,7 @@
         const kind = p.get('k') === 'r' ? 'room' : 'send';
         const mode = p.get('m') === 'g' || (!p.get('m') && token) ? 'global' : 'local';
         if ((kind === 'room' || mode === 'global') && !token) return null;
-        return { kind, mode, code, host, port, webUrl, token, username: String(p.get('u') || '').trim() };
+        return { kind, mode, code, host, port, webUrl, token, username: String(p.get('u') || '').trim(), password };
     }
 
     // Addresses to try, in order: the direct one first (fastest), then the web address

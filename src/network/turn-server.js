@@ -25,6 +25,8 @@ const MAX_LIFETIME = 3600;
 const PERMISSION_LIFETIME = 300;
 const CHANNEL_LIFETIME = 600;
 const MAX_ALLOCATIONS = 100;
+const MAX_PEERS_PER_REQUEST = 8;
+const MAX_PERMISSIONS = 16;
 
 function messageType(method, cls) {
     // Method bits are interleaved with the two class bits (RFC 5389 section 6).
@@ -263,8 +265,13 @@ function createTurnServer({
         }
 
         const peers = (message.attrs.get('peers') || []).map((value) => xorAddress(value));
-        if (!peers.length || peers.some((peer) => !peer)) return error(message, rinfo, 400, 'Bad Request', auth.key);
+        if (!peers.length || peers.length > MAX_PEERS_PER_REQUEST || peers.some((peer) => !peer)) {
+            return error(message, rinfo, 400, 'Bad Request', auth.key);
+        }
         if (peers.some((peer) => !isAllowedPeer(peer.address))) return error(message, rinfo, 403, 'Forbidden', auth.key);
+        if (allocation.permissions.size + peers.length > MAX_PERMISSIONS) {
+            return error(message, rinfo, 400, 'Too Many Peers', auth.key);
+        }
 
         if (message.method === METHOD.CREATE_PERMISSION) {
             for (const peer of peers) allocation.permissions.set(peer.address, now() + PERMISSION_LIFETIME * 1000);

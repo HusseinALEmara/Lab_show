@@ -1,7 +1,7 @@
 const http = require('node:http');
 const crypto = require('node:crypto');
 const { Server } = require('socket.io');
-const { CODE_PATTERN, normalizeCode, normalizeDurationMinutes } = require('./session-fields');
+const { CODE_PATTERN, normalizeCode, normalizeDurationMinutes } = require('../config/session-fields');
 
 const DEFAULT_RELAY_PORT = 4477;
 const MAX_ATTEMPTS_PER_MINUTE = 30;
@@ -41,7 +41,9 @@ function createGlobalRelay({ port = DEFAULT_RELAY_PORT } = {}) {
         response.writeHead(404);
         response.end();
     });
-    const io = new Server(httpServer, { cors: { origin: '*' } });
+    // Socket.IO clients of the app run in Node (no Origin header). Blocking browser
+    // origins stops any website from using a locally running matching service.
+    const io = new Server(httpServer, { cors: { origin: 'none' } });
 
     const sessions = new Map(); // code -> { code, username, endpoint, token, expiresAt, socketId }
     const usernameOwners = new Map(); // username -> code

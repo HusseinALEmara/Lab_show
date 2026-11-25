@@ -5,13 +5,14 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const dgram = require('node:dgram');
 
-const { createLocalHostNode, UDP_DISCOVERY_PORT, isOnLocalSubnet, secretsMatch } = require('../src/server');
+const { createLocalHostNode, isOnLocalSubnet, secretsMatch } = require('../src/network/server');
+const { findHostByCodeOnLan } = require('../src/network/discovery');
 const { connect, ask, nextEvent, receivesWithin } = require('./helpers');
 
 const RENDERER_LINK_CODE = /^(?:\d{6}|[A-Z2-9]{12})$/;
 
-async function startNode() {
-    const node = createLocalHostNode();
+async function startNode(options = {}) {
+    const node = createLocalHostNode(options);
     const info = await node.start();
     const sockets = [];
     const open = async () => {
@@ -285,7 +286,9 @@ test('incompatible protocol versions are refused', async () => {
 });
 
 test('UDP discovery: the code owner answers with its port, and an active code is reported as taken', async () => {
-    const ctx = await startNode();
+    // Use a private UDP port so a running Lab show instance (or the preview server)
+    // cannot take the broadcast port and swallow this test's unicast probe.
+    const ctx = await startNode({ udpPort: 0 });
     const probe = dgram.createSocket('udp4');
     try {
         const { session } = await teacherWithSession(ctx);
@@ -293,7 +296,7 @@ test('UDP discovery: the code owner answers with its port, and an active code is
         const reply = (message) => new Promise((resolve) => {
             const timer = setTimeout(() => { probe.removeAllListeners('message'); resolve(null); }, 800);
             probe.once('message', (msg) => { clearTimeout(timer); resolve(msg.toString()); });
-            probe.send(Buffer.from(message), UDP_DISCOVERY_PORT, '127.0.0.1');
+            probe.send(Buffer.from(message), ctx.info.udpPort, '127.0.0.1');
         });
         assert.equal(await reply(`LAB_SHOW_FIND:${session.code}`), `LAB_SHOW_MATCH:${session.code}:${ctx.info.port}`);
         assert.equal(await reply('LAB_SHOW_FIND:ZZZZZZZZZZZZ'), null, 'other codes get no answer');
@@ -717,6 +720,75 @@ test('the institution\'s own TURN server is handed to joining devices with this 
         const joiner = await ctx.open();
         const joined = await ask(joiner, 'student:join', { code: session.code, title: 'x', token, protocolVersion: 4 });
         assert.deepEqual(joined.iceServers, extra);
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('malformed signaling payloads are refused without killing the node', async () => {
+    const ctx = await startNode({ udpPort: 0 });
+    try {
+        const socket = await ctx.open();
+        for (const event of ['host:select', 'student:join', 'room:join', 'mesh:attach-child', 'room:comment']) {
+            const reply = await ask(socket, event, null, 2000);
+            assert.equal(reply.ok, false, `${event} must be refused`);
+        }
+        // The same process still answers normal requests afterwards.
+        assert.equal((await ask(socket, 'host:register', { secret: ctx.info.hostSecret })).ok, true);
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('the presenter role is server-assigned and relay changes need membership', async () => {
+    const ctx = await startNode({ udpPort: 0 });
+    try {
+        const { session } = await teacherWithSession(ctx);
+        const first = await ctx.open();
+        const second = await ctx.open();
+        const outsider = await ctx.open();
+        const a = await ask(first, 'student:join', {
+            code: session.code, title: 'presenter', role: 'broadcaster', protocolVersion: 4
+        });
+        const b = await ask(second, 'student:join', {
+            code: session.code, title: 'watcher', role: 'broadcaster', protocolVersion: 4
+        });
+        assert.equal(a.ok, true);
+        assert.equal(a.role, 'broadcaster', 'first joiner presents');
+        assert.equal(b.ok, true);
+        assert.equal(b.role, 'viewer', 'a client cannot claim the presenter role');
+        const tamper = await ask(outsider, 'mesh:attach-child', { parentId: a.studentId, childId: b.studentId });
+        assert.equal(tamper.ok, false);
+        assert.equal(tamper.error, 'not-in-session');
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('joining a password-protected session needs the right password', async () => {
+    const ctx = await startNode({ udpPort: 0 });
+    try {
+        const host = await ctx.open();
+        assert.equal((await ask(host, 'host:register', { secret: ctx.info.hostSecret })).ok, true);
+        const created = await ask(host, 'host:create', { durationMinutes: 60, password: 'abc12345' });
+        assert.equal(created.ok, true);
+        const joiner = await ctx.open();
+        assert.equal((await ask(joiner, 'student:join', { code: created.session.code, password: 'wrong123' })).error,
+            'bad-password');
+        assert.equal((await ask(joiner, 'student:join', { code: created.session.code, password: 'abc12345' })).ok, true);
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('LAN discovery finds the code owner over a real UDP socket', async () => {
+    const ctx = await startNode({ udpPort: 0 });
+    try {
+        const { session } = await teacherWithSession(ctx);
+        const found = await findHostByCodeOnLan(session.code, {
+            port: ctx.info.udpPort, targets: ['127.0.0.1'], timeoutMs: 1000
+        });
+        assert.deepEqual(found, { ip: '127.0.0.1', port: ctx.info.port });
     } finally {
         await ctx.close();
     }

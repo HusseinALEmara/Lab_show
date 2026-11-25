@@ -1,5 +1,5 @@
 const path = require('node:path');
-const { pathToFileURL } = require('node:url');
+const { pathToFileURL, fileURLToPath } = require('node:url');
 const zlib = require('node:zlib');
 const { io: connectToRelay } = require('socket.io-client');
 const {
@@ -11,14 +11,15 @@ const {
     session,
     desktopCapturer,
     nativeImage,
-    screen
+    screen,
+    dialog
 } = require('electron');
 
 const { utilityProcess } = require('electron');
 const crypto = require('node:crypto');
-const { createNotificationGuard } = require('./src/notifications');
-const { parseEnv } = require('./src/tunnel');
-const { chooseDataRoot, dataPaths, migrateFrom } = require('./src/app-storage');
+const { createNotificationGuard } = require('./src/security/notifications');
+const { parseEnv } = require('./src/network/tunnel');
+const { chooseDataRoot, dataPaths, migrateFrom } = require('./src/config/app-storage');
 const fs = require('node:fs');
 
 // Everything the installed app writes stays inside its own folder ("data" next to the
@@ -63,11 +64,11 @@ process.env.TEMP = process.env.TMP = process.env.TMPDIR = app.getPath('temp');
         } catch (error) { /* not there: try the next place */ }
     }
 }());
-const { isAllowedControlKey, pressControlKey } = require('./src/keyboard-controls');
+const { isAllowedControlKey, pressControlKey } = require('./src/security/keyboard-controls');
 const {
     isInstallerShutdownRequest,
     shouldQuitOnWindowClose
-} = require('./src/app-lifecycle');
+} = require('./src/config/app-lifecycle');
 
 let mainWindow = null;
 let tray = null;
@@ -130,7 +131,7 @@ function backendConfig() {
 
 function startBackend() {
     return new Promise((resolve, reject) => {
-        const child = utilityProcess.fork(path.join(__dirname, 'src', 'backend.js'), [], {
+        const child = utilityProcess.fork(path.join(__dirname, 'src', 'network', 'backend.js'), [], {
             serviceName: 'Lab show back end',
             cwd: WORK_DIR,
             env: { ...process.env },
@@ -208,6 +209,29 @@ function stopBackend() {
 app.setAppUserModelId('com.labshow.desktop');
 // Remote voices in a public broadcast must play without a click first.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
+const APP_PAGES = ['index.html', 'room.html', 'floating.html']
+    .map((file) => path.join(__dirname, 'renderer', file));
+
+// A renderer must never be able to load the preload (and the host secret) on an
+// attacker-controlled page. Only the app's own local pages are allowed to navigate.
+function isOwnPageUrl(url) {
+    try {
+        const parsed = new URL(url);
+        return parsed.protocol === 'file:' && APP_PAGES.includes(path.resolve(fileURLToPath(parsed)));
+    } catch { return false; }
+}
+
+function guardNavigation(win) {
+    const deny = (event, url) => {
+        if (!isOwnPageUrl(url)) {
+            event.preventDefault();
+            console.warn('[lab-show] blocked navigation to an external page');
+        }
+    };
+    win.webContents.on('will-navigate', (_event, url) => deny(_event, url));
+    win.webContents.on('will-frame-navigate', (event, details) => deny(event, details.url));
+}
 
 function isAppWindow(webContents) {
     if (mainWindow && !mainWindow.isDestroyed() && webContents === mainWindow.webContents) return true;
@@ -358,9 +382,10 @@ function createWindowAndTray() {
         }
     });
     mainWindow.setContentProtection(true);
+    guardNavigation(mainWindow);
 
-    mainWindow.webContents.setWindowOpenHandler(({ frameName }) => {
-        if (frameName === 'FloatingPlayer') {
+    mainWindow.webContents.setWindowOpenHandler(({ frameName, url }) => {
+        if (frameName === 'FloatingPlayer' && isOwnPageUrl(url)) {
             const { width, height } = screen.getPrimaryDisplay().workAreaSize;
             const fw = 480;
             const fh = 300;
@@ -459,11 +484,28 @@ app.whenReady().then(async () => {
         try { fs.rmdirSync(DEFAULT_USER_DATA); } catch { /* absent or not empty */ }
     }
     loadSettings();
-    session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
-        desktopCapturer.getSources({ types: ['screen'] }).then(
-            (sources) => callback(sources && sources.length ? { video: sources[0] } : {}),
-            () => callback({})
-        );
+    // Screen capture needs an explicit, native confirmation. The main process never
+    // auto-grants a display to a renderer just because it asked for one.
+    session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+        try {
+            const arabic = String(app.getLocale() || '').toLowerCase().startsWith('ar');
+            const answer = await dialog.showMessageBox({
+                type: 'question',
+                buttons: arabic ? ['بدء مشاركة الشاشة', 'إلغاء'] : ['Share my screen', 'Cancel'],
+                cancelId: 1,
+                defaultId: 1,
+                title: 'Lab show',
+                message: arabic
+                    ? 'ستُعرض شاشتك على المشاركين في هذا البث. هل تريد المتابعة؟'
+                    : 'Your screen will be shown to the participants of this broadcast. Continue?'
+            });
+            if (answer.response !== 0) return callback({});
+            const sources = await desktopCapturer.getSources({ types: ['screen'] });
+            callback(sources && sources.length ? { video: sources[0] } : {});
+        } catch (error) {
+            console.error('screen capture consent', error);
+            callback({});
+        }
     });
 
     const info = await startBackend();
@@ -477,17 +519,24 @@ app.whenReady().then(async () => {
     app.quit();
 });
 
-// hostInfo carries the host secret: hand it to this app's own windows only, never to the
-// floating player.
-ipcMain.handle('host-info', (event) => (isAppWindow(event.sender) ? hostInfo : null));
+// hostInfo carries the host secret: only the main window and the room window that
+// actually owns the broadcast need it. Viewer windows get just the connection data.
+ipcMain.handle('host-info', (event) => {
+    if (!isAppWindow(event.sender)) return null;
+    const ownerContents = roomOwnerWindow && !roomOwnerWindow.isDestroyed()
+        ? roomOwnerWindow.webContents : null;
+    if (event.sender === mainWindow.webContents || event.sender === ownerContents) return hostInfo;
+    return hostInfo ? { port: hostInfo.port, iceServers: hostInfo.iceServers } : null;
+});
 
 // A device sends its screen to one place at a time: either privately to one receiver
 // (main window) or publicly to many viewers (the owner's room window).
-ipcMain.handle('outgoing:can-start', () => (
-    roomOwnerWindow && !roomOwnerWindow.isDestroyed()
+ipcMain.handle('outgoing:can-start', (event) => {
+    if (!isAppWindow(event.sender)) return { ok: false, error: 'host-only' };
+    return roomOwnerWindow && !roomOwnerWindow.isDestroyed()
         ? { ok: false, error: 'room-active' }
-        : { ok: true }
-));
+        : { ok: true };
+});
 
 function sendRoomOwnerState() {
     sendToRenderer('room:owner-state', { active: Boolean(roomOwnerWindow && !roomOwnerWindow.isDestroyed()) });
@@ -525,6 +574,7 @@ ipcMain.handle('room:open', (event, params = {}) => {
     // Keep the room window itself out of the shared screen (no picture-in-picture loop).
     win.setContentProtection(true);
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    guardNavigation(win);
     roomWindows.add(win);
     if (role === 'owner') roomOwnerWindow = win;
     win.on('closed', () => {
@@ -593,10 +643,18 @@ ipcMain.handle('settings:set', (event, changes = {}) => {
     updateNotificationGuard();
     return { ...settings, notificationsSupported: process.platform === 'win32' };
 });
-ipcMain.handle('find-host', (_event, code) => backendRequest('find-host', { code: String(code || '') }));
+ipcMain.handle('find-host', (event, code) => {
+    if (!isAppWindow(event.sender)) return null;
+    return backendRequest('find-host', { code: String(code || '') });
+});
 
-ipcMain.handle('find-global-host', async (_event, { code, username, relayUrl } = {}) => {
-    const url = String(relayUrl || process.env.LABSHOW_RELAY_URL || 'http://127.0.0.1:4477');
+ipcMain.handle('find-global-host', async (event, { code, username } = {}) => {
+    if (!isAppWindow(event.sender)) return { ok: false };
+    // The relay address is configured by the app, never by a renderer-supplied link.
+    const url = String(process.env.LABSHOW_RELAY_URL || 'http://127.0.0.1:4477');
+    let parsed;
+    try { parsed = new URL(url); } catch { return { ok: false, message: 'خادم المطابقة غير مُعدّ.' }; }
+    if (!['http:', 'https:'].includes(parsed.protocol)) return { ok: false };
     const client = connectToRelay(url, {
         transports: ['websocket'], forceNew: true, reconnection: false, timeout: 5000
     });
@@ -621,8 +679,8 @@ ipcMain.handle('find-global-host', async (_event, { code, username, relayUrl } =
     }
 });
 
-ipcMain.on('window:fullscreen', (_event, flag) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
+ipcMain.on('window:fullscreen', (event, flag) => {
+    if (!isAppWindow(event.sender) || !mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.setFullScreen(Boolean(flag));
     mainWindow.setMenuBarVisibility(!flag);
 });
@@ -630,13 +688,14 @@ ipcMain.on('window:fullscreen', (_event, flag) => {
 // الواجهة تتكيف مع حجم النافذة الذي يختاره المستخدم؛ لا نفرض أحجاماً عند تبديل الشاشات.
 ipcMain.on('window:size-mode', () => {});
 
-ipcMain.on('window:show', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
+ipcMain.on('window:show', (event) => {
+    if (!isAppWindow(event.sender) || !mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.show();
     mainWindow.focus();
 });
 
-ipcMain.on('outgoing:state', (_event, state) => {
+ipcMain.on('outgoing:state', (event, state) => {
+    if (!isAppWindow(event.sender)) return;
     if (!state || typeof state !== 'object') return;
     outgoingState.sharing = Boolean(state.sharing);
     outgoingState.paused = Boolean(state.paused);
@@ -645,7 +704,8 @@ ipcMain.on('outgoing:state', (_event, state) => {
     updateNotificationGuard();
 });
 
-ipcMain.on('outgoing:control', (_event, enabled) => {
+ipcMain.on('outgoing:control', (event, enabled) => {
+    if (!isAppWindow(event.sender)) return;
     outgoingState.controlEnabled = Boolean(enabled) && outgoingState.sharing && !outgoingState.paused;
     if (tray) rebuildTrayMenu(createAppIcon());
 });

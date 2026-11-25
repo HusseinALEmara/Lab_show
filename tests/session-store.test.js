@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createSessionStore, CONTROL_RATE_LIMIT } = require('../src/session-store');
+const { createSessionStore, CONTROL_RATE_LIMIT } = require('../src/network/session-store');
 
 function sharingStudent(store, socketId, title) {
     const { student } = store.join({ code: store.session.code, title, socketId });
@@ -16,7 +16,7 @@ test('students get sequential three-digit numbers and keep their own titles', ()
     assert.equal(a.student.id, '001');
     assert.equal(b.student.id, '002');
     assert.equal(a.student.title, 'Ahmed Ali - Graduation Project');
-    assert.equal(b.student.title, 'الطالب 002');
+    assert.equal(b.student.title, 'المشاهد 002');
 });
 
 test('joining with a wrong code or without a session is refused', () => {
@@ -102,4 +102,46 @@ test('stopping or leaving clears the selection and the permission', () => {
     assert.equal(store.removeBySocket('s1').id, a.id);
     assert.equal(store.serialize().selectedStudentId, null);
     assert.equal(store.get(a.id), null);
+});
+
+test('a session never accepts more than the promised 20 direct viewers', () => {
+    const store = createSessionStore();
+    store.create({ code: 'ABCDEFGHJKLM', maxViewers: 1000 });
+    assert.equal(store.session.maxViewers, 20);
+    // One presenter plus 20 direct viewers: the 22nd device must be refused.
+    for (let i = 0; i < 21; i++) {
+        assert.equal(store.join({ code: 'ABCDEFGHJKLM', socketId: `s${i}` }).ok, true);
+    }
+    assert.equal(store.join({ code: 'ABCDEFGHJKLM', socketId: 'extra' }).reason, 'session-full');
+});
+
+test('the presenter role is assigned once, never granted by what a client asks for', () => {
+    const store = createSessionStore();
+    store.create({ code: 'ABCDEFGHJKLM' });
+    const first = store.join({ code: 'ABCDEFGHJKLM', socketId: 's1', role: 'broadcaster' });
+    const second = store.join({ code: 'ABCDEFGHJKLM', socketId: 's2', role: 'broadcaster' });
+    assert.equal(first.student.role, 'broadcaster');
+    assert.equal(second.student.role, 'viewer');
+    assert.equal(store.serialize().broadcasterId, first.student.id);
+});
+
+test('a protected session refuses wrong or missing passwords', () => {
+    const store = createSessionStore();
+    store.create({ code: 'ABCDEFGHJKLM', password: 'abc12345' });
+    assert.equal(store.join({ code: 'ABCDEFGHJKLM', password: 'wrong123' }).reason, 'bad-password');
+    assert.equal(store.join({ code: 'ABCDEFGHJKLM' }).reason, 'bad-password');
+    assert.equal(store.join({ code: 'ABCDEFGHJKLM', password: 'abc12345' }).ok, true);
+});
+
+test('relay trees reject self-attachment and cycles', () => {
+    const store = createSessionStore();
+    store.create({ code: 'ABCDEFGHJKLM' });
+    const a = store.join({ code: 'ABCDEFGHJKLM', socketId: 's1' }).student;
+    const b = store.join({ code: 'ABCDEFGHJKLM', socketId: 's2' }).student;
+    const c = store.join({ code: 'ABCDEFGHJKLM', socketId: 's3' }).student;
+    assert.equal(store.addRelayChild(a.id, a.id), false, 'self attachment');
+    assert.equal(store.addRelayChild(a.id, b.id), true);
+    assert.equal(store.addRelayChild(b.id, c.id), true);
+    assert.equal(store.addRelayChild(c.id, a.id), false, 'cycle');
+    assert.doesNotThrow(() => store.getRelayTree());
 });

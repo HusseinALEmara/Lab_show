@@ -64,6 +64,26 @@ function httpRequest(url, { method = 'GET', headers = {}, body = null, timeoutMs
     });
 }
 
+// Accept an SSDP answer only from a router on the local network, and only when its
+// description URL points back to that same device. Without this, any LAN host can
+// make the app POST SOAP to an arbitrary internal address (SSRF).
+function trustedGatewayLocation(location, sender, allowLoopback = false) {
+    let url;
+    try { url = new URL(String(location)); } catch { return null; }
+    if (url.protocol !== 'http:' || url.username || url.password) return null;
+    if (!url.hostname || url.hostname !== sender) return null;
+    if (!allowLoopback && (url.hostname === '127.0.0.1' || url.hostname === 'localhost')) return null;
+    if (isNonPublicIPv4(url.hostname) === false) return null;
+    return url.toString();
+}
+
+function sameGatewayHost(controlUrl, gateway) {
+    try {
+        const url = new URL(controlUrl);
+        return url.protocol === 'http:' && url.hostname === gateway.host;
+    } catch { return false; }
+}
+
 // Picks this computer's address on the same subnet as the router.
 function localAddressFor(gatewayHost) {
     const gateway = ipv4ToNumber(gatewayHost);
@@ -85,6 +105,7 @@ function localAddressFor(gatewayHost) {
 function searchGateway({ ssdpAddress, ssdpPort, timeoutMs }) {
     return new Promise((resolve) => {
         const socket = dgram.createSocket('udp4');
+        const allowLoopback = ssdpAddress === '127.0.0.1'; // used by the fake-router tests
         let done = false;
         const finish = (location) => {
             if (done) return;
@@ -94,11 +115,14 @@ function searchGateway({ ssdpAddress, ssdpPort, timeoutMs }) {
             resolve(location);
         };
         const timer = setTimeout(() => finish(null), timeoutMs);
-        socket.on('message', (msg) => {
+        socket.on('message', (msg, rinfo) => {
+            if (!isNonPublicIPv4(rinfo.address) || (!allowLoopback && rinfo.address === '127.0.0.1')) return;
             const text = msg.toString();
             if (!/^HTTP\/1\.1 200/i.test(text)) return;
             const location = /^location:\s*(\S+)/im.exec(text);
-            if (location) finish(location[1]);
+            if (location && trustedGatewayLocation(location[1], rinfo.address, allowLoopback)) {
+                finish(location[1]);
+            }
         });
         socket.on('error', () => finish(null));
         socket.bind(() => {
@@ -126,13 +150,19 @@ async function readGateway(location) {
         const control = xmlValue(block, 'controlURL');
         if (type && control && SERVICE_PATTERN.test(type)) {
             const base = xmlValue(description.body, 'URLBase') || location;
-            return { serviceType: type, controlUrl: new URL(control, base).toString(), host: new URL(location).hostname };
+            const controlUrl = new URL(control, base);
+            const host = new URL(location).hostname;
+            if (!sameGatewayHost(controlUrl.toString(), { host })) continue;
+            return { serviceType: type, controlUrl: controlUrl.toString(), host };
         }
     }
     throw new Error('no WAN connection service on the gateway');
 }
 
 async function soap(gateway, action, args = {}) {
+    if (!sameGatewayHost(gateway.controlUrl, gateway)) {
+        throw new Error('SOAP target is not the discovered gateway');
+    }
     const argXml = Object.entries(args).map(([k, v]) => `<${k}>${escapeXml(v)}</${k}>`).join('');
     const body = '<?xml version="1.0"?>' +
         '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" ' +

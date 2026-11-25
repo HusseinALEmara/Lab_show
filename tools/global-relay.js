@@ -1,4 +1,4 @@
-const { createGlobalRelay, DEFAULT_RELAY_PORT } = require('../src/global-relay');
+const { createGlobalRelay, DEFAULT_RELAY_PORT } = require('../src/network/global-relay');
 
 const port = Number(process.env.LABSHOW_RELAY_PORT || DEFAULT_RELAY_PORT);
 const relay = createGlobalRelay({ port });

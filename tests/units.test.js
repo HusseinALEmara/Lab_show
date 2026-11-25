@@ -3,11 +3,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const fields = require('../src/session-fields');
-const { isAllowedControlKey, CONTROL_KEYS } = require('../src/keyboard-controls');
-const lifecycle = require('../src/app-lifecycle');
-const protocol = require('../src/protocol');
-const { createQualityController, MIN_BITRATE, MAX_BITRATE, INITIAL_BITRATE } = require('../src/adaptive-quality');
+const fields = require('../src/config/session-fields');
+const { isAllowedControlKey, CONTROL_KEYS } = require('../src/security/keyboard-controls');
+const lifecycle = require('../src/config/app-lifecycle');
+const protocol = require('../src/config/protocol');
+const { createQualityController, MIN_BITRATE, MAX_BITRATE, INITIAL_BITRATE } = require('../src/media/adaptive-quality');
 const { safeResolve, ROOT } = require('../tools/preview-server');
 
 test('generated session codes are 12 characters from the unambiguous alphabet', () => {
@@ -108,9 +108,21 @@ test('preview server only serves files inside the project folder', () => {
 });
 
 test('the interface loads the files the installer ships', () => {
-    const html = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'index.html'), 'utf8');
-    for (const [, src] of html.matchAll(/<script src="([^"]+)"/g)) {
-        const target = path.resolve(__dirname, '..', 'renderer', src);
-        assert.ok(fs.existsSync(target), `${src} exists`);
+    for (const page of ['index.html', 'room.html']) {
+        const html = fs.readFileSync(path.join(__dirname, '..', 'renderer', page), 'utf8');
+        for (const [, src] of html.matchAll(/<script src="([^"]+)"/g)) {
+            const target = path.resolve(__dirname, '..', 'renderer', src);
+            assert.ok(fs.existsSync(target), `${page}: ${src} exists`);
+        }
     }
+});
+
+test('the host has a way to watch the broadcasts sent through their link', () => {
+    const html = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'index.html'), 'utf8');
+    const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
+    assert.match(html, /id="btnViewIncoming"/);
+    assert.match(app, /btnViewIncoming\.addEventListener/);
+    assert.match(app, /socket\.on\('media:video'/);
+    assert.match(app, /socket\.on\('webrtc:offer'/);
+    assert.match(app, /host:answer', \{ studentId: incomingStudentId/);
 });

@@ -6,7 +6,7 @@ const dgram = require('node:dgram');
 const crypto = require('node:crypto');
 const {
     createTurnServer, buildMessage, parseMessage, longTermKey, encodeXorAddress, xorAddress, METHOD, CLASS, ATTR
-} = require('../src/turn-server');
+} = require('../src/network/turn-server');
 
 const REALM = 'labshow';
 

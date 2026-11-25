@@ -8,9 +8,9 @@ const { Server } = require('socket.io');
 const { createSessionStore } = require('./session-store');
 const { createRoomStore, OWNER_ID } = require('./room-store');
 const { USERNAME_PATTERN } = require('./global-relay');
-const { PROTOCOL_VERSION, isCompatible } = require('./protocol');
-const { normalizeCode, generateSessionCode } = require('./session-fields');
-const { isAllowedControlKey } = require('./keyboard-controls');
+const { PROTOCOL_VERSION, isCompatible } = require('../config/protocol');
+const { normalizeCode, generateSessionCode } = require('../config/session-fields');
+const { isAllowedControlKey } = require('../security/keyboard-controls');
 const { buildLink } = require('./links');
 const { createTurnServer } = require('./turn-server');
 
@@ -23,6 +23,7 @@ const CODE_PROBE_TIMEOUT_MS = 350;
 const MESSAGES = {
     'host-only': 'هذا الإجراء متاح من نافذة التطبيق على هذا الجهاز فقط.',
     'bad-code': 'الرمز غير صحيح أو منتهي.',
+    'bad-password': 'كلمة السر غير صحيحة.',
     'incompatible': 'إصدارات التطبيق غير متوافقة؛ حدّث كلا الجهازين إلى النسخة نفسها.',
     'global-auth': 'رابط الجلسة غير صالح لهذا الرمز.',
     'bad-name': 'أدخل اسماً من 3 إلى 32 حرفاً أو رقماً.',
@@ -33,12 +34,16 @@ const MESSAGES = {
     'peer-gone': 'لم يعد هذا الجهاز متصلاً.',
     'key-not-allowed': 'هذا المفتاح غير مسموح.',
     'control-not-allowed': 'لم يفعّل صاحب البث التحكم.',
+    'session-full': 'وصل البث إلى الحد الأقصى للمشاهدين (20 شخصاً).',
+    'not-in-session': 'لست ضمن هذه الجلسة.',
+    'relay-attach-failed': 'تعذر ربط جهاز الإعادة بالوالد.',
     'no-room': 'لا يوجد بث عمومي بهذا الرمز.',
     'bad-token': 'رابط البث العمومي غير صالح.',
     'room-full': 'البث العمومي ممتلئ.',
     'not-in-room': 'لست داخل هذا البث العمومي.',
     'empty-comment': 'اكتب تعليقاً أولاً.',
-    'comment-rate': 'تعليقات كثيرة؛ انتظر قليلاً.'
+    'comment-rate': 'تعليقات كثيرة؛ انتظر قليلاً.',
+    'bad-request': 'طلب غير صالح.'
 };
 
 // An encoded media chunk: small metadata and a binary payload of at most 2 MB.
@@ -54,6 +59,26 @@ function safeCallback(callback, payload) {
 
 function fail(callback, error) {
     safeCallback(callback, { ok: false, error, message: MESSAGES[error] || error });
+}
+
+// Every signaling event goes through here: a malformed payload (notably `null`,
+// which bypasses a `= {}` default) becomes an empty object, and any handler
+// exception is answered instead of crashing the whole signaling process.
+function safePayload(value) {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function on(socket, event, handler) {
+    socket.on(event, (...args) => {
+        if (args.length) args[0] = safePayload(args[0]);
+        try {
+            return handler(...args);
+        } catch (error) {
+            console.error(`[lab-show] signaling event ${event} failed:`, error && error.message);
+            const callback = args.find((arg) => typeof arg === 'function');
+            fail(callback, 'bad-request');
+        }
+    });
 }
 
 function isLoopbackAddress(address) {
@@ -166,6 +191,7 @@ function createLocalHostNode({
     resolveWebUrl = null,
     extraIceServers = [],
     port = 0,
+    udpPort = UDP_DISCOVERY_PORT,
     turn = true
 } = {}) {
     const app = express();
@@ -193,7 +219,9 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
     app.get('/health', (request, response) => response.json({ ok: true }));
     const httpServer = http.createServer(app);
     // 4 MB: a key frame of the WebSocket fallback video fits in one message.
-    const io = new Server(httpServer, { cors: { origin: '*' }, maxHttpBufferSize: 4 * 1024 * 1024 });
+    // CORS restricted to same-origin and localhost during development only.
+    const corsOrigin = process.env.NODE_ENV === 'development' ? '*' : (process.env.LABSHOW_CORS_ORIGIN || 'none');
+    const io = new Server(httpServer, { cors: { origin: corsOrigin }, maxHttpBufferSize: 4 * 1024 * 1024 });
     const store = createSessionStore();
     const rooms = createRoomStore();
 
@@ -209,6 +237,22 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
     let turnServer = null;
     let sessionRelay = null; // { username, iceServers } for the global receiving session
     let roomRelay = null; // same for the global public broadcast
+
+    // Per-socket ingress budget: media chunks and signaling packets must not be able
+    // to flood the host or the viewers by pushing frames as fast as the socket allows.
+    const traffic = new Map();
+    function allowTraffic(socketId, bytes = 0, signals = 0) {
+        const now = Date.now();
+        let entry = traffic.get(socketId);
+        if (!entry || now - entry.start >= 1000) {
+            entry = { start: now, bytes: 0, frames: 0, signals: 0 };
+            traffic.set(socketId, entry);
+        }
+        entry.bytes += bytes;
+        entry.frames += 1;
+        entry.signals += signals;
+        return entry.bytes <= 8 * 1024 * 1024 && entry.frames <= 120 && entry.signals <= 60;
+    }
 
     function isOwnProbe(rinfo) {
         if (!ownProbePort || rinfo.port !== ownProbePort) return false;
@@ -372,7 +416,7 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
     io.on('connection', (socket) => {
         // ----- receiving session: this computer's main window -----
 
-        socket.on('host:register', (payload, callback) => {
+        on(socket, 'host:register', (payload, callback) => {
             if (typeof payload === 'function') {
                 callback = payload;
                 payload = {};
@@ -389,12 +433,13 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
             safeCallback(callback, { ok: true });
         });
 
-        socket.on('host:create', async (payload, callback) => {
+        on(socket, 'host:create', async (payload, callback) => {
             if (!isHost(socket)) return fail(callback, 'host-only');
-            const { title, durationMinutes, networkMode, username, protocolVersion } = payload || {};
+            const { title, durationMinutes, networkMode, username, password, maxViewers, protocolVersion } = payload || {};
             const global = networkMode === 'global';
             const name = String(username || '').trim();
             if (global && name && !USERNAME_PATTERN.test(name)) return fail(callback, 'bad-name');
+            if (password && !/^[A-Za-z0-9_-]{4,32}$/.test(password)) return fail(callback, 'bad-password');
             if (store.session) endSession('replaced', 'تم استبدال الرمز برمز جديد.');
 
             const code = await reserveUniqueCode();
@@ -402,13 +447,15 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
             const relayToken = global ? generateSessionCode(12) : '';
             if (global && direct) sessionRelay = await openRelay();
             const globalUrl = buildLink({
-                kind: 'send', mode: global ? 'global' : 'local', code, endpoint, token: relayToken, username: name, webUrl
+                kind: 'send', mode: global ? 'global' : 'local', code, endpoint, token: relayToken,
+                username: name, password: password || '', webUrl
             });
 
             const session = store.create({
                 code, title, durationMinutes, networkMode,
-                username: global ? name : '', relayToken, globalUrl, reachability,
-                protocolVersion: protocolVersion || PROTOCOL_VERSION
+                username: global ? name : '', password: password || '', relayToken, globalUrl, reachability,
+                protocolVersion: protocolVersion || PROTOCOL_VERSION,
+                maxViewers: maxViewers || 20
             });
 
             if (session.expiresAt) {
@@ -434,12 +481,12 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
             safeCallback(callback, { ok: true, session: store.serialize() });
         });
 
-        socket.on('host:delete', () => {
+        on(socket, 'host:delete', () => {
             if (!isHost(socket)) return;
             endSession('deleted', 'تم إيقاف البث وحذف الرمز.');
         });
 
-        socket.on('host:select', ({ studentId } = {}, callback) => {
+        on(socket, 'host:select', ({ studentId } = {}, callback) => {
             if (!isHost(socket)) return fail(callback, 'host-only');
             const result = store.select(studentId);
             if (!result.ok) return fail(callback, 'not-broadcasting');
@@ -448,21 +495,21 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
             safeCallback(callback, { ok: true, studentId });
         });
 
-        socket.on('host:stop-student', ({ studentId } = {}, callback) => {
+        on(socket, 'host:stop-student', ({ studentId } = {}, callback) => {
             if (!isHost(socket)) return fail(callback, 'host-only');
             if (!store.get(studentId)) return fail(callback, 'peer-gone');
             sendToStudent(studentId, 'host:stop', { studentId });
             safeCallback(callback, { ok: true });
         });
 
-        socket.on('host:pause-student', ({ studentId, paused } = {}, callback) => {
+        on(socket, 'host:pause-student', ({ studentId, paused } = {}, callback) => {
             if (!isHost(socket)) return fail(callback, 'host-only');
             if (!store.get(studentId)) return fail(callback, 'peer-gone');
             sendToStudent(studentId, 'host:pause', { studentId, paused: Boolean(paused) });
             safeCallback(callback, { ok: true });
         });
 
-        socket.on('host:key', ({ studentId, key } = {}, callback) => {
+        on(socket, 'host:key', ({ studentId, key } = {}, callback) => {
             if (!isHost(socket)) return fail(callback, 'host-only');
             if (store.isGlobal()) return fail(callback, 'control-local-only');
             if (!isAllowedControlKey(key)) return fail(callback, 'key-not-allowed');
@@ -471,19 +518,19 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
             safeCallback(callback, { ok: true });
         });
 
-        socket.on('host:answer', ({ studentId, answer } = {}) => {
+        on(socket, 'host:answer', ({ studentId, answer } = {}) => {
             if (!isHost(socket) || !store.get(studentId)) return;
             sendToStudent(studentId, 'webrtc:answer', { studentId, answer });
         });
 
-        socket.on('host:ice', ({ studentId, candidate } = {}) => {
+        on(socket, 'host:ice', ({ studentId, candidate } = {}) => {
             if (!isHost(socket) || !store.get(studentId)) return;
             sendToStudent(studentId, 'webrtc:ice', { studentId, candidate });
         });
 
         // ----- receiving session: a device sending its screen here -----
 
-        socket.on('student:join', ({ code, title, username, token, protocolVersion } = {}, callback) => {
+        on(socket, 'student:join', ({ code, title, username, token, password, protocolVersion } = {}, callback) => {
             const current = store.serialize();
             if (current && !isCompatible(protocolVersion, current.protocolVersion)) {
                 return fail(callback, 'incompatible');
@@ -492,20 +539,35 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
                 const nameOk = !current.username || String(username || '').trim() === current.username;
                 if (!nameOk || !secretsMatch(current.relayToken, token)) return fail(callback, 'global-auth');
             }
-            const result = store.join({ code: normalizeCode(code), title, socketId: socket.id });
-            if (!result.ok) return fail(callback, 'bad-code');
+            if (current && current.password && !secretsMatch(current.password, String(password || ''))) {
+                return fail(callback, 'bad-password');
+            }
+            // Joining always creates a viewer. The client's `role` is ignored: a
+            // participant must never be able to claim the presenter slot by itself.
+            const result = store.join({ code: normalizeCode(code), title, socketId: socket.id, role: 'viewer', password });
+            if (!result.ok) {
+                if (result.reason === 'session-full') {
+                    return fail(callback, 'session-full');
+                }
+                return fail(callback, 'bad-code');
+            }
             emitState();
             safeCallback(callback, {
                 ok: true,
                 studentId: result.student.id,
+                role: result.student.role,
+                broadcasterId: store.serialize().broadcasterId,
                 networkMode: store.serialize().networkMode,
                 expiresAt: store.serialize().expiresAt,
+                maxViewers: store.serialize().maxViewers,
+                directViewers: store.countDirectViewers(),
+                relayCount: store.countRelays(),
                 // Only after the link token was checked (global sessions).
                 iceServers: store.isGlobal() ? iceFor(sessionRelay) : []
             });
         });
 
-        socket.on('student:start', () => {
+        on(socket, 'student:start', () => {
             const student = store.findBySocket(socket.id);
             if (!student) return;
             store.markSharing(student.id, true);
@@ -513,7 +575,7 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
             socket.emit('preview:start', { studentId: student.id });
         });
 
-        socket.on('student:update-title', ({ title } = {}, callback) => {
+        on(socket, 'student:update-title', ({ title } = {}, callback) => {
             const student = store.findBySocket(socket.id);
             if (!student) return fail(callback, 'no-active-share');
             store.updateTitle(student.id, title);
@@ -529,21 +591,21 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
             safeCallback(callback, { ok: true, title: updatedTitle });
         });
 
-        socket.on('student:pause', () => {
+        on(socket, 'student:pause', () => {
             const student = store.findBySocket(socket.id);
             if (!student || !store.markPaused(student.id, true)) return;
             emitState();
             emitStudentEvent(student.id, 'paused');
         });
 
-        socket.on('student:resume', () => {
+        on(socket, 'student:resume', () => {
             const student = store.findBySocket(socket.id);
             if (!student || !store.markPaused(student.id, false)) return;
             emitState();
             emitStudentEvent(student.id, 'resumed');
         });
 
-        socket.on('student:stop', () => {
+        on(socket, 'student:stop', () => {
             const student = store.findBySocket(socket.id);
             if (!student) return;
             store.markSharing(student.id, false);
@@ -552,7 +614,7 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
             emitStudentEvent(student.id, 'stopped');
         });
 
-        socket.on('student:permission', ({ enabled } = {}, callback) => {
+        on(socket, 'student:permission', ({ enabled } = {}, callback) => {
             const student = store.findBySocket(socket.id);
             if (!student || typeof enabled !== 'boolean') return fail(callback, 'no-active-share');
             if (enabled && store.isGlobal()) return fail(callback, 'control-local-only');
@@ -567,7 +629,7 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
             safeCallback(callback, { ok: true, enabled });
         });
 
-        socket.on('student:offer', ({ studentId, offer } = {}) => {
+        on(socket, 'student:offer', ({ studentId, offer } = {}) => {
             const student = store.findBySocket(socket.id);
             if (
                 !student ||
@@ -583,40 +645,99 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
         // block UDP, such as many organizations). The sender encodes its screen; this
         // node passes the encoded chunks to its own receiving window.
 
-        socket.on('student:transport', ({ mode } = {}) => {
+        on(socket, 'student:transport', ({ mode } = {}) => {
             const student = store.findBySocket(socket.id);
             if (!student || !hostSocketId) return;
             student.transport = mode === 'ws' ? 'ws' : 'rtc';
             io.to(hostSocketId).emit('student:transport', { studentId: student.id, mode: student.transport });
         });
 
-        socket.on('student:media', (meta, data) => {
+        on(socket, 'student:media', (meta, data) => {
             const student = store.findBySocket(socket.id);
             if (!student || !student.isSharing || student.isPaused || !hostSocketId || !isMediaChunk(meta, data)) return;
+            if (!allowTraffic(socket.id, data.byteLength)) return;
             io.to(hostSocketId).emit('media:video', { studentId: student.id, type: meta.type, ts: meta.ts, codec: meta.codec }, data);
         });
 
-        socket.on('host:keyframe', ({ studentId } = {}) => {
+        on(socket, 'host:keyframe', ({ studentId } = {}) => {
             if (!isHost(socket)) return;
             sendToStudent(studentId, 'media:keyframe', { studentId });
         });
 
-        socket.on('student:ice', ({ studentId, candidate } = {}) => {
+        on(socket, 'student:ice', ({ studentId, candidate } = {}) => {
             const student = store.findBySocket(socket.id);
             if (!student || student.id !== studentId || !hostSocketId) return;
             io.to(hostSocketId).emit('webrtc:ice', { studentId, candidate });
         });
 
+        // ----- mesh relay: viewers can become sub-servers for other viewers -----
+
+        on(socket, 'mesh:offer-relay', ({ from, to, offer } = {}, callback) => {
+            const viewer = store.findBySocket(socket.id);
+            if (!viewer || viewer.id !== from) return fail(callback, 'not-in-session');
+            const target = store.get(to);
+            if (!target) return fail(callback, 'peer-gone');
+            // Forward the offer to the target viewer via the host.
+            if (hostSocketId) {
+                io.to(hostSocketId).emit('mesh:relay-offer', { from, to, offer });
+            }
+            safeCallback(callback, { ok: true });
+        });
+
+        on(socket, 'mesh:relay-answer', ({ from, to, answer } = {}, callback) => {
+            const viewer = store.findBySocket(socket.id);
+            if (!viewer || viewer.id !== to) return fail(callback, 'not-in-session');
+            const target = store.get(from);
+            if (!target) return fail(callback, 'peer-gone');
+            if (hostSocketId) {
+                io.to(hostSocketId).emit('mesh:relay-answer', { from, to, answer });
+            }
+            safeCallback(callback, { ok: true });
+        });
+
+        on(socket, 'mesh:relay-ice', ({ from, to, candidate } = {}) => {
+            const viewer = store.findBySocket(socket.id);
+            if (!viewer || (viewer.id !== from && viewer.id !== to)) return;
+            if (hostSocketId) {
+                io.to(hostSocketId).emit('mesh:relay-ice', { from, to, candidate });
+            }
+        });
+
+        // Only a member of this session (or the trusted local host) may change its
+        // relay tree. Otherwise any socket could attach every viewer as a child and
+        // bypass the direct-viewer limit.
+        function mayChangeRelay(parentId, childId) {
+            if (isHost(socket)) return true;
+            const caller = store.findBySocket(socket.id);
+            return Boolean(caller && (caller.id === parentId || caller.id === childId));
+        }
+
+        on(socket, 'mesh:attach-child', ({ parentId, childId } = {}, callback) => {
+            if (!mayChangeRelay(parentId, childId)) return fail(callback, 'not-in-session');
+            if (!store.addRelayChild(parentId, childId)) {
+                return fail(callback, 'relay-attach-failed');
+            }
+            emitState();
+            safeCallback(callback, { ok: true });
+        });
+
+        on(socket, 'mesh:detach-child', ({ parentId, childId } = {}, callback) => {
+            if (!mayChangeRelay(parentId, childId)) return fail(callback, 'not-in-session');
+            store.removeRelayChild(parentId, childId);
+            emitState();
+            safeCallback(callback, { ok: true });
+        });
+
         // ----- public broadcast: this computer's room window -----
 
-        socket.on('room:owner', (payload, callback) => {
+        on(socket, 'room:owner', (payload, callback) => {
             if (!isTrustedLocal(socket, payload && payload.secret)) return fail(callback, 'host-only');
             roomOwnerSocketId = socket.id;
             socket.emit('room:state', rooms.serialize());
             safeCallback(callback, { ok: true });
         });
 
-        socket.on('room:create', async (payload, callback) => {
+        on(socket, 'room:create', async (payload, callback) => {
             if (!isRoomOwner(socket)) return fail(callback, 'host-only');
             const { title, networkMode, durationMinutes, ownerName } = payload || {};
             const global = networkMode === 'global';
@@ -638,11 +759,11 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
             safeCallback(callback, { ok: true, room });
         });
 
-        socket.on('room:end', () => {
+        on(socket, 'room:end', () => {
             if (isRoomOwner(socket)) endRoom('ended');
         });
 
-        socket.on('room:kick', ({ viewerId } = {}) => {
+        on(socket, 'room:kick', ({ viewerId } = {}) => {
             if (!isRoomOwner(socket)) return;
             const viewer = rooms.remove(viewerId);
             if (!viewer) return;
@@ -657,7 +778,7 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
 
         // ----- public broadcast: a viewer -----
 
-        socket.on('room:join', ({ code, token, name, protocolVersion } = {}, callback) => {
+        on(socket, 'room:join', ({ code, token, name, protocolVersion } = {}, callback) => {
             if (!isCompatible(protocolVersion, PROTOCOL_VERSION)) return fail(callback, 'incompatible');
             const result = rooms.join({ code, token, name, socketId: socket.id });
             if (!result.ok) return fail(callback, result.error);
@@ -683,7 +804,7 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
             emitParticipants();
         });
 
-        socket.on('room:leave', () => {
+        on(socket, 'room:leave', () => {
             const viewer = rooms.leaveBySocket(socket.id);
             if (!viewer) return;
             socket.leave('room');
@@ -691,7 +812,7 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
             emitParticipants();
         });
 
-        socket.on('room:comment', ({ text } = {}, callback) => {
+        on(socket, 'room:comment', ({ text } = {}, callback) => {
             const senderId = isRoomOwner(socket) ? OWNER_ID : (rooms.viewerBySocket(socket.id) || {}).id;
             if (!senderId) return fail(callback, 'not-in-room');
             const result = rooms.addComment(senderId, text);
@@ -702,7 +823,7 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
 
         // Viewers that have no direct WebRTC path receive the owner's encoded screen and a
         // per-viewer voice mix over this WebSocket, and send their microphone the same way.
-        socket.on('room:transport', ({ mode } = {}) => {
+        on(socket, 'room:transport', ({ mode } = {}) => {
             const viewer = rooms.viewerBySocket(socket.id);
             if (!viewer) return;
             viewer.transport = mode === 'ws' ? 'ws' : 'rtc';
@@ -711,8 +832,8 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
             if (roomOwnerSocketId) io.to(roomOwnerSocketId).emit('room:viewer-transport', { viewerId: viewer.id, mode: viewer.transport });
         });
 
-        socket.on('room:video', (meta, data) => {
-            if (!isRoomOwner(socket) || !isMediaChunk(meta, data)) return;
+        on(socket, 'room:video', (meta, data) => {
+            if (!isRoomOwner(socket) || !isMediaChunk(meta, data) || !allowTraffic(socket.id, data.byteLength)) return;
             for (const viewer of rooms.viewers()) {
                 if (viewer.transport !== 'ws') continue;
                 const target = io.sockets.sockets.get(viewer.socketId);
@@ -729,31 +850,34 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
             }
         });
 
-        socket.on('room:keyframe', () => {
+        on(socket, 'room:keyframe', () => {
+            if (!allowTraffic(socket.id, 0, 1)) return;
             const viewer = rooms.viewerBySocket(socket.id);
             if (viewer && roomOwnerSocketId) io.to(roomOwnerSocketId).emit('room:keyframe-request', { viewerId: viewer.id });
         });
 
-        socket.on('room:audio', (meta, data) => {
+        on(socket, 'room:audio', (meta, data) => {
             const viewer = rooms.viewerBySocket(socket.id);
-            if (!viewer || !roomOwnerSocketId || !isMediaChunk(meta, data)) return;
+            if (!viewer || !roomOwnerSocketId || !isMediaChunk(meta, data) || !allowTraffic(socket.id, data.byteLength)) return;
             io.to(roomOwnerSocketId).emit('room:audio', { from: viewer.id, ts: meta.ts, sr: meta.sr, ch: meta.ch }, data);
         });
 
-        socket.on('room:audio-to', (meta, data) => {
-            if (!isRoomOwner(socket) || !meta || !isMediaChunk(meta, data)) return;
+        on(socket, 'room:audio-to', (meta, data) => {
+            if (!isRoomOwner(socket) || !meta || !isMediaChunk(meta, data) || !allowTraffic(socket.id, data.byteLength)) return;
             const viewer = rooms.get(meta.to);
             if (viewer) io.to(viewer.socketId).emit('room:audio', { from: OWNER_ID, ts: meta.ts, sr: meta.sr, ch: meta.ch }, data);
         });
 
-        socket.on('room:mic', ({ on } = {}) => {
+        on(socket, 'room:mic', ({ on } = {}) => {
             const senderId = isRoomOwner(socket) ? OWNER_ID : (rooms.viewerBySocket(socket.id) || {}).id;
             if (!senderId || !rooms.setMic(senderId, on)) return;
             emitParticipants();
         });
 
         // WebRTC signaling: the owner talks to one viewer at a time; a viewer only to the owner.
-        socket.on('room:signal', ({ to, data } = {}) => {
+        on(socket, 'room:signal', ({ to, data } = {}) => {
+            if (!allowTraffic(socket.id, 0, 1)) return;
+            try { if (JSON.stringify(data || {}).length > 4096) return; } catch { return; }
             if (isRoomOwner(socket)) {
                 const viewer = rooms.get(to);
                 if (viewer) io.to(viewer.socketId).emit('room:signal', { from: OWNER_ID, data });
@@ -765,7 +889,8 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
             }
         });
 
-        socket.on('disconnect', () => {
+        on(socket, 'disconnect', () => {
+            traffic.delete(socket.id);
             if (socket.id === hostSocketId) hostSocketId = null;
             if (socket.id === roomOwnerSocketId) {
                 endRoom('owner-left');
@@ -784,34 +909,38 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
     });
 
     function startUdpResponder() {
-        udpSocket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
-        udpSocket.on('message', (msg, rinfo) => {
-            const text = msg.toString();
-            if (text.startsWith('LAB_SHOW_CHECK_CODE:')) {
-                const candidate = text.slice('LAB_SHOW_CHECK_CODE:'.length).trim();
-                if (isOwnProbe(rinfo)) return;
-                const current = store.serialize();
-                const room = rooms.room;
-                if ((current && current.code === candidate) || (room && room.code === candidate) ||
-                    reservingCode === candidate) {
-                    udpSocket.send(Buffer.from(`LAB_SHOW_CODE_TAKEN:${candidate}`), rinfo.port, rinfo.address);
+        return new Promise((resolve) => {
+            udpSocket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+            udpSocket.on('message', (msg, rinfo) => {
+                const text = msg.toString();
+                if (text.startsWith('LAB_SHOW_CHECK_CODE:')) {
+                    const candidate = text.slice('LAB_SHOW_CHECK_CODE:'.length).trim();
+                    if (isOwnProbe(rinfo)) return;
+                    const current = store.serialize();
+                    const room = rooms.room;
+                    if ((current && current.code === candidate) || (room && room.code === candidate) ||
+                        reservingCode === candidate) {
+                        udpSocket.send(Buffer.from(`LAB_SHOW_CODE_TAKEN:${candidate}`), rinfo.port, rinfo.address);
+                    }
+                    return;
                 }
-                return;
-            }
-            if (text.startsWith('LAB_SHOW_FIND:')) {
-                const code = text.slice('LAB_SHOW_FIND:'.length).trim();
-                const current = store.serialize();
-                if (current && current.code === code && (!current.expiresAt || Date.now() < current.expiresAt)) {
-                    udpSocket.send(
-                        Buffer.from(`LAB_SHOW_MATCH:${code}:${listeningPort}`),
-                        rinfo.port,
-                        rinfo.address
-                    );
+                if (text.startsWith('LAB_SHOW_FIND:')) {
+                    const code = text.slice('LAB_SHOW_FIND:'.length).trim();
+                    const current = store.serialize();
+                    if (current && current.code === code && (!current.expiresAt || Date.now() < current.expiresAt)) {
+                        udpSocket.send(
+                            Buffer.from(`LAB_SHOW_MATCH:${code}:${listeningPort}`),
+                            rinfo.port,
+                            rinfo.address
+                        );
+                    }
                 }
-            }
+            });
+            udpSocket.on('error', () => { /* discovery is best-effort */ resolve(0); });
+            udpSocket.bind(udpPort, '0.0.0.0', () => {
+                try { resolve(udpSocket.address().port); } catch { resolve(0); }
+            });
         });
-        udpSocket.on('error', () => { /* discovery is best-effort */ });
-        udpSocket.bind(UDP_DISCOVERY_PORT, '0.0.0.0');
     }
 
     return {
@@ -819,13 +948,15 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
             httpServer.once('error', reject);
             httpServer.listen(port, '0.0.0.0', async () => {
                 listeningPort = httpServer.address().port;
-                startUdpResponder();
+                const udpBoundPort = await startUdpResponder();
                 if (turn) {
                     const relayAddress = getLocalIPs()[0] || '127.0.0.1';
                     turnServer = createTurnServer({
                         relayAddress,
                         // Relay to this device only: never an open relay.
-                        isAllowedPeer: (ip) => ip === '127.0.0.1' || getLocalIPs().includes(ip)
+                        // Never relay to loopback: a session participant could otherwise
+                        // inject UDP packets into this device's own services.
+                        isAllowedPeer: (ip) => getLocalIPs().includes(ip)
                     });
                     try {
                         await turnServer.start();
@@ -833,7 +964,10 @@ code{direction:ltr;display:inline-block;color:#9db24d;font-size:1.3rem;letter-sp
                         turnServer = null;
                     }
                 }
-                resolve({ port: listeningPort, ips: getLocalIPs(), hostSecret, turnPort: turnServer ? turnServer.port : 0 });
+                resolve({
+                    port: listeningPort, udpPort: udpBoundPort, ips: getLocalIPs(), hostSecret,
+                    turnPort: turnServer ? turnServer.port : 0
+                });
             });
         }),
         stop: () => new Promise((resolve) => {
